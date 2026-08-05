@@ -19,6 +19,10 @@ permissions:
 jobs:
   android:
     runs-on: ubuntu-24.04
+    env:
+      GODOT_ANDROID_KEYSTORE_DEBUG_PATH: ${{ github.workspace }}/pulse100/debug.keystore
+      GODOT_ANDROID_KEYSTORE_DEBUG_USER: androiddebugkey
+      GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD: android
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -32,11 +36,17 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install required Android packages
+      - name: Install complete Godot Android toolchain
         shell: bash
         run: |
           yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.1"
+          sdkmanager --sdk_root="$ANDROID_HOME" \
+            "platform-tools" \
+            "build-tools;35.0.1" \
+            "platforms;android-35" \
+            "cmdline-tools;latest" \
+            "cmake;3.10.2.4988404" \
+            "ndk;28.1.13356709"
 
       - name: Create debug signing key
         shell: bash
@@ -48,6 +58,18 @@ jobs:
             -keypass android \
             -dname "CN=Android Debug,O=Forseti Games,C=BR" \
             -keyalg RSA -keysize 2048 -validity 10000
+
+      - name: Configure Godot editor paths
+        shell: bash
+        run: |
+          mkdir -p "$HOME/.config/godot"
+          cat > "$HOME/.config/godot/editor_settings-4.tres" <<EOF
+          [gd_resource type="EditorSettings" format=3]
+
+          [resource]
+          export/android/android_sdk_path = "$ANDROID_HOME"
+          export/android/java_sdk_path = "$JAVA_HOME"
+          EOF
 
       - name: Export Godot Android APK
         id: export
@@ -66,17 +88,16 @@ jobs:
         shell: bash
         run: |
           mkdir -p pulse100/build
-          APK="$(find pulse100/build -maxdepth 2 -type f -name '*.apk' | head -n 1)"
+          APK="$(find pulse100/build -maxdepth 3 -type f -name '*.apk' | head -n 1)"
           if [ -z "$APK" ]; then
-            APK="$(find . -type f -name '*.apk' | head -n 1)"
+            APK="$(find "$HOME/.local/share/godot/builds" -type f -name '*.apk' | head -n 1)"
           fi
           test -n "$APK"
           test -s "$APK"
-          if [ "$APK" != "pulse100/build/Pulse100-v1.0.0.apk" ]; then
-            cp "$APK" pulse100/build/Pulse100-v1.0.0.apk
-          fi
+          cp "$APK" pulse100/build/Pulse100-v1.0.0.apk
           ls -lh pulse100/build/Pulse100-v1.0.0.apk
           unzip -t pulse100/build/Pulse100-v1.0.0.apk
+          "$ANDROID_HOME/build-tools/35.0.1/apksigner" verify --verbose --print-certs pulse100/build/Pulse100-v1.0.0.apk
 
       - name: Generate checksum
         shell: bash
