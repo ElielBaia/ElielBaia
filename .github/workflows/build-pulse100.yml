@@ -43,7 +43,9 @@ jobs:
           sdkmanager --sdk_root="$ANDROID_HOME" \
             "platform-tools" \
             "build-tools;35.0.1" \
+            "build-tools;36.0.0" \
             "platforms;android-35" \
+            "platforms;android-36" \
             "cmdline-tools;latest" \
             "cmake;3.10.2.4988404" \
             "ndk;28.1.13356709"
@@ -97,10 +99,14 @@ jobs:
           fi
           test -n "$APK"
           test -s "$APK"
-          cp "$APK" pulse100/build/Pulse100-v1.0.0.apk
+          if [ "$APK" != "pulse100/build/Pulse100-v1.0.0.apk" ]; then
+            cp "$APK" pulse100/build/Pulse100-v1.0.0.apk
+          fi
           ls -lh pulse100/build/Pulse100-v1.0.0.apk
           unzip -t pulse100/build/Pulse100-v1.0.0.apk
-          "$ANDROID_HOME/build-tools/35.0.1/apksigner" verify --verbose --print-certs pulse100/build/Pulse100-v1.0.0.apk
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -x "$APKSIGNER"
+          "$APKSIGNER" verify --verbose --print-certs pulse100/build/Pulse100-v1.0.0.apk
 
       - name: Generate checksum
         shell: bash
