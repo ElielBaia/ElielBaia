@@ -21,10 +21,6 @@ jobs:
     runs-on: ubuntu-24.04
     container:
       image: barichello/godot-ci:4.6.3
-    env:
-      GODOT_ANDROID_KEYSTORE_DEBUG_PATH: ${{ github.workspace }}/pulse100/debug.keystore
-      GODOT_ANDROID_KEYSTORE_DEBUG_USER: androiddebugkey
-      GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD: android
     steps:
       - name: Checkout
         uses: actions/checkout@v4
