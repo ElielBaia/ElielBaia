@@ -24,3 +24,7 @@ godot --path .
 ```bash
 godot --headless --path . --export-debug Android build/Pulse100.apk
 ```
+
+## Build automatizada
+
+A integração contínua valida os scripts e gera um APK Android instalável a cada alteração do projeto.
