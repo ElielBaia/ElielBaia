@@ -6,6 +6,11 @@ on:
     paths:
       - 'pulse100/**'
       - '.github/workflows/build-pulse100.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'pulse100/**'
+      - '.github/workflows/build-pulse100.yml'
   workflow_dispatch:
 
 permissions:
