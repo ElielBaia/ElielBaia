@@ -21,9 +21,26 @@ jobs:
     runs-on: ubuntu-24.04
     container:
       image: barichello/godot-ci:4.6.3
+    env:
+      GODOT_ANDROID_KEYSTORE_DEBUG_PATH: ${{ github.workspace }}/pulse100/debug.keystore
+      GODOT_ANDROID_KEYSTORE_DEBUG_USER: androiddebugkey
+      GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD: android
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Configure Android SDK and signing
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+          keytool -genkeypair -v \
+            -keystore pulse100/debug.keystore \
+            -storepass android \
+            -alias androiddebugkey \
+            -keypass android \
+            -dname "CN=Android Debug,O=Forseti Games,C=BR" \
+            -keyalg RSA -keysize 2048 -validity 10000
 
       - name: Configure Godot and export templates
         shell: bash
