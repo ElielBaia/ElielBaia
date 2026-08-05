@@ -19,10 +19,6 @@ permissions:
 jobs:
   android:
     runs-on: ubuntu-24.04
-    env:
-      GODOT_ANDROID_KEYSTORE_DEBUG_PATH: ${{ github.workspace }}/pulse100/debug.keystore
-      GODOT_ANDROID_KEYSTORE_DEBUG_USER: androiddebugkey
-      GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD: android
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -74,9 +70,8 @@ jobs:
           export/android/java_sdk_path = "$JAVA_HOME"
           EOF
           done
-          cat "$HOME/.config/godot/editor_settings-4.6.tres"
 
-      - name: Export Godot Android APK
+      - name: Export unsigned Godot Android APK
         id: export
         uses: firebelley/godot-export@v8.0.0
         with:
@@ -89,24 +84,32 @@ jobs:
           verbose: true
           cache: true
 
-      - name: Normalize and verify APK
+      - name: Align, sign and verify APK
         shell: bash
         run: |
           mkdir -p pulse100/build
-          APK="$(find pulse100/build -maxdepth 3 -type f -name '*.apk' | head -n 1)"
-          if [ -z "$APK" ]; then
-            APK="$(find "$HOME/.local/share/godot/builds" -type f -name '*.apk' | head -n 1)"
+          UNSIGNED="$(find pulse100/build "$HOME/.local/share/godot/builds" -type f -name '*unsigned*.apk' 2>/dev/null | head -n 1)"
+          if [ -z "$UNSIGNED" ]; then
+            UNSIGNED="$(find pulse100/build "$HOME/.local/share/godot/builds" -type f -name '*.apk' 2>/dev/null | head -n 1)"
           fi
-          test -n "$APK"
-          test -s "$APK"
-          if [ "$APK" != "pulse100/build/Pulse100-v1.0.0.apk" ]; then
-            cp "$APK" pulse100/build/Pulse100-v1.0.0.apk
-          fi
-          ls -lh pulse100/build/Pulse100-v1.0.0.apk
-          unzip -t pulse100/build/Pulse100-v1.0.0.apk
+          test -n "$UNSIGNED"
+          test -s "$UNSIGNED"
+          ZIPALIGN="$(find "$ANDROID_HOME/build-tools" -type f -name zipalign | sort -V | tail -n 1)"
           APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -x "$ZIPALIGN"
           test -x "$APKSIGNER"
+          "$ZIPALIGN" -f -p 4 "$UNSIGNED" pulse100/build/Pulse100-aligned.apk
+          "$APKSIGNER" sign \
+            --ks pulse100/debug.keystore \
+            --ks-key-alias androiddebugkey \
+            --ks-pass pass:android \
+            --key-pass pass:android \
+            --out pulse100/build/Pulse100-v1.0.0.apk \
+            pulse100/build/Pulse100-aligned.apk
+          test -s pulse100/build/Pulse100-v1.0.0.apk
+          unzip -t pulse100/build/Pulse100-v1.0.0.apk
           "$APKSIGNER" verify --verbose --print-certs pulse100/build/Pulse100-v1.0.0.apk
+          ls -lh pulse100/build/Pulse100-v1.0.0.apk
 
       - name: Generate checksum
         shell: bash
