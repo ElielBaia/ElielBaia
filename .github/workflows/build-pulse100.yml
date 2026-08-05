@@ -19,35 +19,64 @@ permissions:
 jobs:
   android:
     runs-on: ubuntu-24.04
-    container:
-      image: barichello/godot-ci:4.6.3
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Configure Godot and export templates
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install required Android packages
         shell: bash
         run: |
-          mkdir -p "$HOME/.local/share/godot/export_templates"
-          mkdir -p "$HOME/.config/godot"
-          if [ -d /root/.local/share/godot/export_templates/4.6.3.stable ]; then
-            cp -a /root/.local/share/godot/export_templates/4.6.3.stable "$HOME/.local/share/godot/export_templates/"
-          fi
-          if [ -d /root/.config/godot ]; then
-            cp -a /root/.config/godot/. "$HOME/.config/godot/"
-          fi
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.1"
+
+      - name: Create debug signing key
+        shell: bash
+        run: |
+          keytool -genkeypair -v \
+            -keystore pulse100/debug.keystore \
+            -storepass android \
+            -alias androiddebugkey \
+            -keypass android \
+            -dname "CN=Android Debug,O=Forseti Games,C=BR" \
+            -keyalg RSA -keysize 2048 -validity 10000
+
+      - name: Export Godot Android APK
+        id: export
+        uses: firebelley/godot-export@v8.0.0
+        with:
+          godot_executable_download_url: https://github.com/godotengine/godot-builds/releases/download/4.6.3-stable/Godot_v4.6.3-stable_linux.x86_64.zip
+          godot_export_templates_download_url: https://github.com/godotengine/godot-builds/releases/download/4.6.3-stable/Godot_v4.6.3-stable_export_templates.tpz
+          relative_project_path: ./pulse100
+          use_preset_export_path: true
+          export_debug: true
+          presets_to_export: Android
+          verbose: true
+          cache: true
+
+      - name: Normalize and verify APK
+        shell: bash
+        run: |
           mkdir -p pulse100/build
-
-      - name: Parse project and scripts
-        shell: bash
-        run: godot --headless --path pulse100 --editor --quit-after 5 --verbose
-
-      - name: Export Android APK
-        shell: bash
-        run: |
-          godot --headless --path pulse100 --export-debug "Android" build/Pulse100-v1.0.0.apk --verbose
-          test -s pulse100/build/Pulse100-v1.0.0.apk
+          APK="$(find pulse100/build -maxdepth 2 -type f -name '*.apk' | head -n 1)"
+          if [ -z "$APK" ]; then
+            APK="$(find . -type f -name '*.apk' | head -n 1)"
+          fi
+          test -n "$APK"
+          test -s "$APK"
+          if [ "$APK" != "pulse100/build/Pulse100-v1.0.0.apk" ]; then
+            cp "$APK" pulse100/build/Pulse100-v1.0.0.apk
+          fi
           ls -lh pulse100/build/Pulse100-v1.0.0.apk
+          unzip -t pulse100/build/Pulse100-v1.0.0.apk
 
       - name: Generate checksum
         shell: bash
