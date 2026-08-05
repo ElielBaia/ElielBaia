@@ -1,0 +1,59 @@
+name: Build Pulse 100 Android
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'pulse100/**'
+      - '.github/workflows/build-pulse100.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    runs-on: ubuntu-24.04
+    container:
+      image: barichello/godot-ci:4.6.3
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure Godot and export templates
+        shell: bash
+        run: |
+          mkdir -p "$HOME/.local/share/godot/export_templates"
+          mkdir -p "$HOME/.config/godot"
+          if [ -d /root/.local/share/godot/export_templates/4.6.3.stable ]; then
+            cp -a /root/.local/share/godot/export_templates/4.6.3.stable "$HOME/.local/share/godot/export_templates/"
+          fi
+          if [ -d /root/.config/godot ]; then
+            cp -a /root/.config/godot/. "$HOME/.config/godot/"
+          fi
+          mkdir -p pulse100/build
+
+      - name: Parse project and scripts
+        shell: bash
+        run: godot --headless --path pulse100 --editor --quit-after 5 --verbose
+
+      - name: Export Android APK
+        shell: bash
+        run: |
+          godot --headless --path pulse100 --export-debug "Android" build/Pulse100-v1.0.0.apk --verbose
+          test -s pulse100/build/Pulse100-v1.0.0.apk
+          ls -lh pulse100/build/Pulse100-v1.0.0.apk
+
+      - name: Generate checksum
+        shell: bash
+        run: sha256sum pulse100/build/Pulse100-v1.0.0.apk | tee pulse100/build/SHA256SUMS.txt
+
+      - name: Upload Android artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Pulse100-Android-v1.0.0
+          path: |
+            pulse100/build/Pulse100-v1.0.0.apk
+            pulse100/build/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
