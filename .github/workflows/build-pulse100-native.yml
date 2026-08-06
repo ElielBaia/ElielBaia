@@ -1,0 +1,101 @@
+name: Build Pulse 100 Infinite Android
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'pulse100-native/**'
+      - '.github/workflows/build-pulse100-native.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'pulse100-native/**'
+      - '.github/workflows/build-pulse100-native.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android platform
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Restore Pulse 100 Infinite source
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cat pulse100-native/tools/PulseGameView.java.gz.b64.part* \
+            | base64 --decode \
+            | gzip --decompress \
+            > pulse100-native/app/src/main/java/com/forsetigames/pulse100/PulseGameView.java
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('pulse100-native/app/src/main/java/com/forsetigames/pulse100/PulseGameView.java')
+          text = path.read_text()
+          text = text.replace(
+              'p.hits = 0;\n                kept++;',
+              'p.hits = 0;\n                p.leaving = false;\n                kept++;'
+          )
+          text = text.replace(
+              'if (comboTimer <= 0f && combo > 0) {\n            combo = 0;\n            specialReady = ABILITY_NORMAL;\n        }',
+              'if (comboTimer <= 0f && combo > 0) {\n            combo = 0;\n        }'
+          )
+          path.write_text(text)
+          PY
+          test -s pulse100-native/app/src/main/java/com/forsetigames/pulse100/PulseGameView.java
+          grep -q "RESSONANCIA INFINITA" pulse100-native/app/src/main/java/com/forsetigames/pulse100/PulseGameView.java
+          grep -q "p.leaving = false" pulse100-native/app/src/main/java/com/forsetigames/pulse100/PulseGameView.java
+          wc -l pulse100-native/app/src/main/java/com/forsetigames/pulse100/PulseGameView.java
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Compile APK
+        shell: bash
+        run: gradle -p pulse100-native :app:assembleDebug --no-daemon --stacktrace
+
+      - name: Verify and package APK
+        shell: bash
+        run: |
+          mkdir -p pulse100-native/build
+          APK="pulse100-native/app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$APK"
+          cp "$APK" pulse100-native/build/Pulse100-Infinite-v2.0.0.apk
+          cp pulse100-native/app/src/main/java/com/forsetigames/pulse100/PulseGameView.java pulse100-native/build/PulseGameView-v2.java
+          unzip -t pulse100-native/build/Pulse100-Infinite-v2.0.0.apk
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs pulse100-native/build/Pulse100-Infinite-v2.0.0.apk
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging pulse100-native/build/Pulse100-Infinite-v2.0.0.apk | tee pulse100-native/build/APK-INFO.txt
+          sha256sum pulse100-native/build/Pulse100-Infinite-v2.0.0.apk | tee pulse100-native/build/SHA256SUMS.txt
+          ls -lh pulse100-native/build/Pulse100-Infinite-v2.0.0.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Pulse100-Infinite-v2.0.0
+          path: |
+            pulse100-native/build/Pulse100-Infinite-v2.0.0.apk
+            pulse100-native/build/SHA256SUMS.txt
+            pulse100-native/build/APK-INFO.txt
+            pulse100-native/build/PulseGameView-v2.java
+          if-no-files-found: error
+          retention-days: 30
