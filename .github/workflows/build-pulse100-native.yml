@@ -38,13 +38,15 @@ jobs:
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
 
-      - name: Restore Pulse 100 Infinite source
+      - name: Restore Pulse 100 Infinite source and signing key
         shell: bash
         run: |
           cat pulse100-native/tools/PulseGameView.java.gz.b64.part* \
             | base64 --decode \
             | gzip --decompress \
             > pulse100-native/app/src/main/java/com/forsetigames/pulse100/PulseGameView.java
+          base64 --decode pulse100-native/tools/pulse100-stable-debug.keystore.b64 \
+            > pulse100-native/tools/pulse100-stable-debug.keystore
           python3 - <<'PY'
           from pathlib import Path
           path = Path('pulse100-native/app/src/main/java/com/forsetigames/pulse100/PulseGameView.java')
@@ -60,8 +62,11 @@ jobs:
           path.write_text(text)
           PY
           test -s pulse100-native/app/src/main/java/com/forsetigames/pulse100/PulseGameView.java
+          test -s pulse100-native/tools/pulse100-stable-debug.keystore
           grep -q "RESSONANCIA INFINITA" pulse100-native/app/src/main/java/com/forsetigames/pulse100/PulseGameView.java
           grep -q "p.leaving = false" pulse100-native/app/src/main/java/com/forsetigames/pulse100/PulseGameView.java
+          keytool -list -keystore pulse100-native/tools/pulse100-stable-debug.keystore \
+            -storepass pulse100test -alias pulse100 >/dev/null
           wc -l pulse100-native/app/src/main/java/com/forsetigames/pulse100/PulseGameView.java
 
       - name: Set up Gradle
