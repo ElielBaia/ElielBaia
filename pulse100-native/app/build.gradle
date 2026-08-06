@@ -6,6 +6,15 @@ android {
     namespace 'com.forsetigames.pulse100'
     compileSdk 36
 
+    signingConfigs {
+        debug {
+            storeFile file('../tools/pulse100-stable-debug.keystore')
+            storePassword 'pulse100test'
+            keyAlias 'pulse100'
+            keyPassword 'pulse100test'
+        }
+    }
+
     defaultConfig {
         applicationId 'com.forsetigames.pulse100'
         minSdk 23
@@ -17,6 +26,7 @@ android {
     buildTypes {
         debug {
             minifyEnabled false
+            signingConfig signingConfigs.debug
         }
         release {
             minifyEnabled true
