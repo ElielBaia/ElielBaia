@@ -8,7 +8,7 @@ import android.view.Window;
 import android.view.WindowManager;
 
 public final class MainActivity extends Activity {
-    private InfiniteGameView gameView;
+    private CoreEvolutionView gameView;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -18,7 +18,7 @@ public final class MainActivity extends Activity {
         getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         hideSystemUi();
-        gameView = new InfiniteGameView(this);
+        gameView = new CoreEvolutionView(this);
         setContentView(gameView);
     }
 
