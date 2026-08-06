@@ -40,7 +40,16 @@ jobs:
         run: |
           set -euxo pipefail
           mkdir -p pulse100-native/app/src/main/java
-          cat pulse100-native/tools/pulse100-java-src.tar.gz.b64.part* | base64 --decode | tar -xz -C pulse100-native/app/src/main/java
+          cat \
+            pulse100-native/tools/pulse100-java-src.tar.gz.b64.part00 \
+            pulse100-native/tools/pulse100-java-src.tar.gz.b64.part01 \
+            pulse100-native/tools/pulse100-java-src.tar.gz.b64.part02fix0 \
+            pulse100-native/tools/pulse100-java-src.tar.gz.b64.part02fix1 \
+            pulse100-native/tools/pulse100-java-src.tar.gz.b64.part02fix2 \
+            pulse100-native/tools/pulse100-java-src.tar.gz.b64.part03 \
+            pulse100-native/tools/pulse100-java-src.tar.gz.b64.part04 \
+            | base64 --decode \
+            | tar -xz -C pulse100-native/app/src/main/java
           test -s pulse100-native/app/src/main/java/com/forsetigames/pulse100/GameEngine.java
           test -s pulse100-native/app/src/main/java/com/forsetigames/pulse100/PulseGameView.java
           grep -q "PROTEJA A ÚLTIMA LUZ" pulse100-native/app/src/main/java/com/forsetigames/pulse100/GameEngine.java
