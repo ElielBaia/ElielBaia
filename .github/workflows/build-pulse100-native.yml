@@ -45,8 +45,23 @@ jobs:
             | base64 --decode \
             | gzip --decompress \
             > pulse100-native/app/src/main/java/com/forsetigames/pulse100/PulseGameView.java
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('pulse100-native/app/src/main/java/com/forsetigames/pulse100/PulseGameView.java')
+          text = path.read_text()
+          text = text.replace(
+              'p.hits = 0;\n                kept++;',
+              'p.hits = 0;\n                p.leaving = false;\n                kept++;'
+          )
+          text = text.replace(
+              'if (comboTimer <= 0f && combo > 0) {\n            combo = 0;\n            specialReady = ABILITY_NORMAL;\n        }',
+              'if (comboTimer <= 0f && combo > 0) {\n            combo = 0;\n        }'
+          )
+          path.write_text(text)
+          PY
           test -s pulse100-native/app/src/main/java/com/forsetigames/pulse100/PulseGameView.java
           grep -q "RESSONANCIA INFINITA" pulse100-native/app/src/main/java/com/forsetigames/pulse100/PulseGameView.java
+          grep -q "p.leaving = false" pulse100-native/app/src/main/java/com/forsetigames/pulse100/PulseGameView.java
           wc -l pulse100-native/app/src/main/java/com/forsetigames/pulse100/PulseGameView.java
 
       - name: Set up Gradle
