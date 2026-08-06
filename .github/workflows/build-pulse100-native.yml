@@ -41,11 +41,13 @@ jobs:
       - name: Restore Pulse 100 Infinite source and signing key
         shell: bash
         run: |
+          set -euxo pipefail
           cat pulse100-native/tools/PulseGameView.java.gz.b64.part* \
             | base64 --decode \
             | gzip --decompress \
             > pulse100-native/app/src/main/java/com/forsetigames/pulse100/PulseGameView.java
-          base64 --decode pulse100-native/tools/pulse100-stable-debug.keystore.b64 \
+          tr -d '\r\n' < pulse100-native/tools/pulse100-stable-debug.keystore.b64 \
+            | base64 --decode \
             > pulse100-native/tools/pulse100-stable-debug.keystore
           python3 - <<'PY'
           from pathlib import Path
@@ -65,9 +67,8 @@ jobs:
           test -s pulse100-native/tools/pulse100-stable-debug.keystore
           grep -q "RESSONANCIA INFINITA" pulse100-native/app/src/main/java/com/forsetigames/pulse100/PulseGameView.java
           grep -q "p.leaving = false" pulse100-native/app/src/main/java/com/forsetigames/pulse100/PulseGameView.java
-          keytool -list -keystore pulse100-native/tools/pulse100-stable-debug.keystore \
-            -storepass pulse100test -alias pulse100 >/dev/null
           wc -l pulse100-native/app/src/main/java/com/forsetigames/pulse100/PulseGameView.java
+          wc -c pulse100-native/tools/pulse100-stable-debug.keystore
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
