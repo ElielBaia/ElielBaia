@@ -1,0 +1,146 @@
+name: Build Pulse 100 Core Evolution v3
+
+on:
+  push:
+    branches: [pulse100-core-evolution-v3]
+  pull_request:
+    branches: [main]
+    paths:
+      - 'pulse100-native/**'
+      - '.github/workflows/build-pulse100-core-v3.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android platform
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Restore game source
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p pulse100-native/app/src/main/java
+          cat \
+            pulse100-native/tools/pulse100-java-src.tar.gz.b64.part00 \
+            pulse100-native/tools/pulse100-java-src.tar.gz.b64.part01 \
+            pulse100-native/tools/pulse100-java-src.tar.gz.b64.part02fix0 \
+            pulse100-native/tools/pulse100-java-src.tar.gz.b64.part02fix1 \
+            pulse100-native/tools/pulse100-java-src.tar.gz.b64.part02fix2 \
+            pulse100-native/tools/pulse100-java-src.tar.gz.b64.part03 \
+            pulse100-native/tools/pulse100-java-src.tar.gz.b64.part04 \
+            | base64 --decode \
+            | tar -xz -C pulse100-native/app/src/main/java
+          test -s pulse100-native/app/src/main/java/com/forsetigames/pulse100/GameEngine.java
+          test -s pulse100-native/app/src/main/java/com/forsetigames/pulse100/PulseGameView.java
+          grep -q "PROTEJA A ÚLTIMA LUZ" pulse100-native/app/src/main/java/com/forsetigames/pulse100/GameEngine.java
+          grep -q "TRANSCENDÊNCIA 100" pulse100-native/app/src/main/java/com/forsetigames/pulse100/GameEngine.java
+          grep -q "A COLMEIA" pulse100-native/app/src/main/java/com/forsetigames/pulse100/PulseGameView.java
+
+      - name: Run pure gameplay smoke test
+        shell: bash
+        run: |
+          mkdir -p /tmp/pulse-smoke/com/forsetigames/pulse100
+          cat > /tmp/pulse-smoke/com/forsetigames/pulse100/TestEngine.java <<'JAVA'
+          package com.forsetigames.pulse100;
+          public final class TestEngine implements GameEngine.GameEvents {
+              public void onSound(int s) {}
+              public void onVibrate(int m) {}
+              public void onTutorialComplete() {}
+              public void onRunFinished(int a, int b, float c, int d, int e, int f) {}
+              public static void main(String[] args) {
+                  TestEngine events = new TestEngine();
+                  GameEngine game = new GameEngine(events);
+                  game.startRun(false);
+                  for (int frame = 0; frame < 60 * 90 && game.screen != GameEngine.SCREEN_RESULT; frame++) {
+                      if (frame % 75 == 0 && game.charges > 0) {
+                          float x = 100f + (frame * 17 % 520);
+                          float y = 260f + (frame * 29 % 700);
+                          game.beginCharge(x, y);
+                          for (int i = 0; i < 20; i++) game.update(1f / 60f);
+                          game.releaseCharge(x, y);
+                      }
+                      game.update(1f / 60f);
+                      if (game.screen == GameEngine.SCREEN_UPGRADE) game.chooseUpgrade(frame % 3);
+                  }
+                  if (!game.runStarted) throw new IllegalStateException("run did not start");
+                  if (game.totalConverted < 0 || game.score < 0) throw new IllegalStateException("invalid counters");
+                  System.out.println("smoke-ok score=" + game.score + " converted=" + game.totalConverted + " screen=" + game.screen);
+              }
+          }
+          JAVA
+          javac -d /tmp/pulse-smoke-classes \
+            pulse100-native/app/src/main/java/com/forsetigames/pulse100/GameEngine.java \
+            /tmp/pulse-smoke/com/forsetigames/pulse100/TestEngine.java
+          java -cp /tmp/pulse-smoke-classes com.forsetigames.pulse100.TestEngine
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Compile APK
+        shell: bash
+        run: gradle -p pulse100-native :app:assembleDebug --no-daemon --stacktrace
+
+      - name: Verify and package
+        shell: bash
+        run: |
+          set -euxo pipefail
+          OUT=pulse100-native/build/release
+          mkdir -p "$OUT/source"
+          APK=pulse100-native/app/build/outputs/apk/debug/app-debug.apk
+          cp "$APK" "$OUT/Pulse100-Core-Evolution-v3.0.0.apk"
+          cp -R pulse100-native/app/src/main/java/com "$OUT/source/"
+          cp pulse100-native/app/src/main/AndroidManifest.xml "$OUT/source/"
+          cp pulse100-native/app/build.gradle "$OUT/source/"
+          unzip -t "$OUT/Pulse100-Core-Evolution-v3.0.0.apk"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$OUT/Pulse100-Core-Evolution-v3.0.0.apk" | tee "$OUT/SIGNATURE-INFO.txt"
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$OUT/Pulse100-Core-Evolution-v3.0.0.apk" | tee "$OUT/APK-INFO.txt"
+          sha256sum "$OUT/Pulse100-Core-Evolution-v3.0.0.apk" | tee "$OUT/SHA256SUMS.txt"
+          cat > "$OUT/BUILD-REPORT.txt" <<'REPORT'
+          Pulse 100: Core Evolution v3.0.0
+          - Android nativo, Java 17 e Canvas
+          - minSdk 23; targetSdk 36
+          - núcleo central com integridade, escudo e seis formas evolutivas
+          - toque e pulso carregado com atração gravitacional
+          - cargas recarregáveis por ressonância
+          - fragmentos, blindados, parasitas, geradores, prismas e cura
+          - reações cromáticas em cadeia
+          - upgrades roguelite em escolhas de três
+          - satélites sentinelas
+          - combo 100 e Transcendência
+          - chefe A Colmeia com três órgãos cromáticos
+          - progressão infinita após a primeira vitória
+          - salvamento local, tutorial, som, vibração e efeitos reduzidos
+          - sem internet, login, anúncios ou coleta de dados
+          REPORT
+          (cd "$OUT/source" && zip -qr ../Pulse100-Core-Evolution-v3.0.0-source.zip .)
+          ls -lh "$OUT"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Pulse100-Core-Evolution-v3.0.0
+          path: pulse100-native/build/release/*
+          if-no-files-found: error
+          retention-days: 30
