@@ -13,7 +13,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -85,6 +85,33 @@ jobs:
           sha256sum "$APK" | tee apk-sha256.txt
           stat -c '%n %s bytes' "$APK" | tee apk-size.txt
           cp "$APK" BABEL-The-Weight-of-Heaven-debug.apk
+      - name: Install and launch BABEL on Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 29
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: |
+            set -euo pipefail
+            cd babel-ci/project
+            APK=app/build/outputs/apk/debug/app-debug.apk
+            adb install -r "$APK" | tee emulator-install.txt
+            adb logcat -c
+            adb shell am force-stop com.forsetigames.babel
+            adb shell am start -W -n com.forsetigames.babel/.MainActivity | tee emulator-launch.txt
+            sleep 3
+            PID=$(adb shell pidof com.forsetigames.babel | tr -d '\r')
+            test -n "$PID"
+            echo "BABEL process alive: $PID" | tee emulator-process.txt
+            adb shell dumpsys activity activities | grep -F 'com.forsetigames.babel/.MainActivity' | head -n 5 | tee emulator-activity.txt
+            adb exec-out screencap -p > emulator-home.png
+            test -s emulator-home.png
+            if adb logcat -d --pid="$PID" '*:E' | grep -E 'FATAL EXCEPTION|AndroidRuntime'; then
+              echo 'FATAL runtime exception detected' >&2
+              exit 33
+            fi
       - name: Package auditable source snapshot
         working-directory: babel-ci/project
         run: zip -qr BABEL-Android-Source.zip . -x '.gradle/*' 'app/build/*' 'apk-inspect/*'
@@ -102,3 +129,8 @@ jobs:
             babel-ci/project/apk-sha256.txt
             babel-ci/project/apk-size.txt
             babel-ci/project/compiled-classes.txt
+            babel-ci/project/emulator-install.txt
+            babel-ci/project/emulator-launch.txt
+            babel-ci/project/emulator-process.txt
+            babel-ci/project/emulator-activity.txt
+            babel-ci/project/emulator-home.png
