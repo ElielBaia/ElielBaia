@@ -32,7 +32,12 @@ jobs:
         shell: bash
         run: |
           mkdir -p babel-ci
-          cat babel-ci/source-parts/part-*.b64 | base64 -d > babel-ci/babel_project_source.zip
+          : > babel-ci/babel_project_source.zip
+          for f in babel-ci/source-parts/part-*.b64; do
+            echo "Decoding $f"
+            base64 -d "$f" >> babel-ci/babel_project_source.zip
+          done
+          unzip -t babel-ci/babel_project_source.zip
           unzip -q babel-ci/babel_project_source.zip -d babel-ci
           test -f babel-ci/project/app/build.gradle
 
