@@ -1,0 +1,200 @@
+package com.forsetigames.babel;
+
+import android.content.Context;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.LinearGradient;
+import android.graphics.Paint;
+import android.graphics.Path;
+import android.graphics.Rect;
+import android.graphics.RectF;
+import android.graphics.Shader;
+import android.graphics.Typeface;
+import android.media.AudioManager;
+import android.media.SoundPool;
+import android.os.Vibrator;
+import android.view.MotionEvent;
+import android.view.View;
+
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.Date;
+import java.util.EnumMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Random;
+
+/**
+ * BABEL — The Weight of Heaven
+ *
+ * A portrait, one-finger construction game whose visible rigid-body physics is backed by
+ * a second structural layer. Every settled block remains relevant: load continues down the
+ * support graph and old weak links can wake back into rigid-body motion when overloaded.
+ */
+public final class GameView extends View implements PhysicsWorld.Events {
+    private static final float LOGICAL_W=1080f;
+    private static final float FIXED_DT=1f/60f;
+    private static final int MENU=0, PLAY=1, UPGRADES=2, GAMEOVER=3;
+
+    private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG|Paint.FILTER_BITMAP_FLAG);
+    private final Paint text=new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint thin=new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Typeface titleFace=Typeface.create("sans-serif-condensed",Typeface.BOLD);
+    private final Typeface regularFace=Typeface.create("sans-serif",Typeface.NORMAL);
+    private final Typeface mediumFace=Typeface.create("sans-serif-medium",Typeface.NORMAL);
+
+    private final SaveData save;
+    private final ArrayList<Block> blocks=new ArrayList<>();
+    private final ArrayList<Particle> particles=new ArrayList<>();
+    private final ArrayList<MaterialType> queue=new ArrayList<>();
+    private final EnumMap<MaterialType,Bitmap> textures=new EnumMap<>(MaterialType.class);
+    private Bitmap grain,icon;
+    private PhysicsWorld physics;
+    private StructuralSolver structure;
+    private DifficultyDirector director;
+    private Random rng;
+
+    private SoundPool sounds;
+    private int sndStone,sndCrack,sndClay,sndWood,sndWind,windStream;
+    private final Vibrator vibrator;
+
+    private int screen=MENU;
+    private boolean paused=false, stressView=false, daily=false, ending=false, rewardCommitted=false;
+    private long lastFrameNs=0;
+    private float accumulator=0f,time=0f,structureClock=0f;
+    private float scale=1f,logicalH=1920f;
+    private float cameraY=0f,cameraTarget=0f;
+    private float maxHistoricalHeight=0f,connectedHeight=0f,wind=0f;
+    private float holdTargetX=LOGICAL_W*.5f;
+    private float currentRotation=0f;
+    private float spawnDelay=0f;
+    private float collapseQuiet=0f,panicTimer=0f,endingTimer=0f;
+    private float totalBuiltMass=0f;
+    private int nextId=1,builtCount=0,lostCount=0,survivedCollapses=0,collapseBursts=0;
+    private int lastConnectedCount=0,reward=0,efficiency=100;
+    private String collapseCause="A torre perdeu o caminho de cargas até a fundação.";
+    private Block held;
+    private Block lastFailed;
+    private long runSeed=0L;
+    private boolean dragging=false;
+    private String toast="";
+    private float toastTimer=0f;
+
+    private final RectF btnA=new RectF(),btnB=new RectF(),btnC=new RectF(),btnD=new RectF();
+
+    public GameView(Context context){
+        super(context);
+        setFocusable(true);
+        setLayerType(View.LAYER_TYPE_HARDWARE,null);
+        save=new SaveData(context);
+        vibrator=(Vibrator)context.getSystemService(Context.VIBRATOR_SERVICE);
+        loadArt();
+        initAudio();
+        configurePaints();
+    }
+
+    private void configurePaints(){
+        text.setTypeface(regularFace);text.setColor(Color.WHITE);text.setTextAlign(Paint.Align.LEFT);
+        thin.setStyle(Paint.Style.STROKE);thin.setStrokeWidth(2f);thin.setColor(Color.argb(100,255,255,255));
+    }
+
+    private void loadArt(){
+        textures.put(MaterialType.STONE,BitmapFactory.decodeResource(getResources(),R.drawable.tex_stone));
+        textures.put(MaterialType.CLAY,BitmapFactory.decodeResource(getResources(),R.drawable.tex_clay));
+        textures.put(MaterialType.WOOD,BitmapFactory.decodeResource(getResources(),R.drawable.tex_wood));
+        textures.put(MaterialType.ADOBE,BitmapFactory.decodeResource(getResources(),R.drawable.tex_adobe));
+        textures.put(MaterialType.BRICK,BitmapFactory.decodeResource(getResources(),R.drawable.tex_brick));
+        grain=BitmapFactory.decodeResource(getResources(),R.drawable.ui_grain);
+        icon=BitmapFactory.decodeResource(getResources(),R.drawable.icon_babel);
+    }
+
+    @SuppressWarnings("deprecation")
+    private void initAudio(){
+        sounds=new SoundPool(7,AudioManager.STREAM_MUSIC,0);
+        sndStone=sounds.load(getContext(),R.raw.stone_thud,1);
+        sndCrack=sounds.load(getContext(),R.raw.crack,1);
+        sndClay=sounds.load(getContext(),R.raw.clay_set,1);
+        sndWood=sounds.load(getContext(),R.raw.wood_knock,1);
+        sndWind=sounds.load(getContext(),R.raw.wind_loop,1);
+    }
+
+    public void onHostPause(){
+        if(screen==PLAY && !ending)paused=true;
+        stopWind();
+    }
+    public void onHostResume(){ if(screen==PLAY && !paused)startWind(); }
+
+    @Override protected void onDraw(Canvas canvas){
+        super.onDraw(canvas);
+        if(getWidth()<=0)return;
+        scale=getWidth()/LOGICAL_W;
+        logicalH=getHeight()/scale;
+        long now=System.nanoTime();
+        if(lastFrameNs==0)lastFrameNs=now;
+        float frame=Math.min(.05f,(now-lastFrameNs)/1_000_000_000f);
+        lastFrameNs=now;
+        accumulator+=frame;
+        int safety=0;
+        while(accumulator>=FIXED_DT && safety++<4){update(FIXED_DT);accumulator-=FIXED_DT;}
+
+        canvas.save();canvas.scale(scale,scale);
+        drawBackdrop(canvas);
+        if(screen==MENU)drawMenu(canvas);
+        else if(screen==UPGRADES)drawUpgrades(canvas);
+        else { drawWorld(canvas); if(screen==GAMEOVER)drawGameOver(canvas); }
+        drawToast(canvas);
+        canvas.restore();
+        postInvalidateOnAnimation();
+    }
+
+    private void update(float dt){
+        time+=dt;
+        if(toastTimer>0)toastTimer-=dt;
+        if(screen!=PLAY || paused)return;
+        if(ending){
+            endingTimer+=dt;
+            physics.step(dt,wind*.75f);
+            updateParticles(dt);
+            cameraTarget=Math.max(0f,connectedHeight-visibleSpan()*.54f);
+            cameraY+=(cameraTarget-cameraY)*Math.min(1f,dt*1.4f);
+            if(endingTimer>3.1f)finishRun();
+            return;
+        }
+
+        wind=director.wind(maxHistoricalHeight,time);
+        physics.step(dt,wind);
+        structureClock+=dt;
+        if(structureClock>=1f/15f){
+            float sdt=structureClock;structureClock=0f;
+            structure.setWind(wind);
+            structure.step(sdt);
+            handleStructuralEvents();
+            evaluateTower();
+        }
+        updateConstruction(dt);
+        updateParticles(dt);
+        updateHeld(dt);
+        updateWindAudio();
+        if(panicTimer>0)panicTimer-=dt;
+        if(collapseQuiet>0){
+            collapseQuiet-=dt;
+            if(collapseQuiet<=0 && !ending && connectedHeight>maxHistoricalHeight*.58f && lastConnectedCount>=4){
+                survivedCollapses++;
+                toast("COLAPSO SOBREVIVIDO  +"+(30+survivedCollapses*5));
+            }
+        }
+        if(spawnDelay>0){
+            spawnDelay-=dt;
+            if(spawnDelay<=0 && held==null)spawnHeld();
+        }
+        cameraTarget=Math.max(0f,maxHistoricalHeight-visibleSpan()*.61f);
+        cameraY+=(cameraTarget-cameraY)*Math.min(1f,dt*2.3f);
+    }
+
+    private void updateHeld(float dt){
+        if(held==null)return;
+        float sway=director.craneSway(maxHistoricalHeight,time);
