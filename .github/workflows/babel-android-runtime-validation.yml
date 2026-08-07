@@ -4,6 +4,7 @@ on:
   pull_request:
     branches: [ main ]
     paths:
+      - 'babel-ci/**'
       - '.github/workflows/babel-android-runtime-validation.yml'
 
 permissions:
@@ -74,7 +75,6 @@ jobs:
           adb shell settings put global window_animation_scale 0 || true
           adb shell settings put global transition_animation_scale 0 || true
           adb shell settings put global animator_duration_scale 0 || true
-          # Suppress Android 9's first-use immersive-mode education card so gestures reach the game.
           adb shell settings put secure immersive_mode_confirmations confirmed || true
 
           adb install -r BABEL-The-Weight-of-Heaven.apk 2>&1 | tee runtime-install.txt
@@ -86,13 +86,11 @@ jobs:
           test -n "$PID"
           adb exec-out screencap -p > runtime-menu.png
 
-          # Build button; then verify game screen contains a suspended construction block visually.
           adb shell input tap 540 700
           sleep 3
           test -n "$(adb shell pidof com.forsetigames.babel | tr -d '\r')"
           adb exec-out screencap -p > runtime-before-drop.png
 
-          # Held block center is ~y=212 on the 1080x1920 Pixel 2 viewport.
           adb shell input swipe 540 212 675 212 650
           sleep 5
           test -n "$(adb shell pidof com.forsetigames.babel | tr -d '\r')"
