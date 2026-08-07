@@ -102,13 +102,17 @@ public final class StructuralSolver {
                 b.supportRight=Math.max(b.supportRight,c.centerX+c.overlap*.5f);
             }
             if (!b.supports.isEmpty()) {
+                // All actual supports participate in the effective contact polygon, including
+                // the foundation. The earlier implementation skipped the ground contact here,
+                // unintentionally replacing a valid ~92% foundation contact by zero.
                 float sum=0f, center=0f, ov=0f;
                 for (SupportContact c : b.supports) {
-                    if (c.ground) continue;
-                    sum += c.weight; center += c.centerX*c.weight; ov += c.overlap;
+                    sum += Math.max(1f, c.weight);
+                    center += c.centerX * Math.max(1f, c.weight);
+                    ov += c.overlap;
                 }
                 if (sum>0f) b.supportCenter=center/sum;
-                else if (b.supportLeft< b.supportRight) b.supportCenter=(b.supportLeft+b.supportRight)*.5f;
+                else if (b.supportLeft < b.supportRight) b.supportCenter=(b.supportLeft+b.supportRight)*.5f;
                 b.supportQuality=Math.min(1f, ov/Math.max(1f,b.w));
             }
         }
@@ -174,7 +178,6 @@ public final class StructuralSolver {
             float comX = b.combinedMass>0.0001f ? b.momentX/b.combinedMass : b.x;
             float span = Math.max(18f,b.supportRight-b.supportLeft);
             float half=span*.5f;
-            float eccentricity=Math.abs(comX-b.supportCenter)/Math.max(8f,half);
             float contactFactor=Math.max(.16f,Math.min(1f,b.supportQuality));
             float constructionFactor=.52f+.48f*clamp01(b.construction);
             float strengthUpgrade=upgrades.materialStrength(b.material);
