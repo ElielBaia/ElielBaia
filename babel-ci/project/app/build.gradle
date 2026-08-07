@@ -1,0 +1,29 @@
+plugins { id 'com.android.application' }
+
+android {
+    namespace 'com.forsetigames.babel'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'com.forsetigames.babel'
+        minSdk 23
+        targetSdk 35
+        versionCode 3
+        versionName '0.9.1'
+    }
+
+    buildTypes {
+        debug {
+            debuggable true
+        }
+        release {
+            minifyEnabled false
+            shrinkResources false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
