@@ -1,0 +1,199 @@
+        float target=Math.max(85f,Math.min(LOGICAL_W-85f,holdTargetX+sway));
+        held.x+=(target-held.x)*Math.min(1f,dt*9f);
+        held.y=cameraY+visibleSpan()-92f;
+        held.angle+=(currentRotation-held.angle)*Math.min(1f,dt*12f);
+    }
+
+    private void handleStructuralEvents(){
+        int failures=structure.failuresThisStep();
+        if(failures<=0)return;
+        collapseBursts++;
+        collapseQuiet=2.4f;
+        panicTimer=2.1f;
+        float worst=0f;
+        for(Block b:blocks){
+            if(b.justFailed && b.stress>=worst){worst=b.stress;lastFailed=b;}
+        }
+        if(lastFailed!=null){
+            collapseCause="Falha em "+lastFailed.material.label.toLowerCase(Locale.ROOT)+" #"+lastFailed.id+
+                    " — tensão "+Math.round(lastFailed.stress*100)+"% da capacidade efetiva.";
+            burst(lastFailed,22);
+        }
+        sounds.play(sndCrack,.80f,.80f,2,0,.92f+(float)Math.random()*.12f);
+        try{if(vibrator!=null)vibrator.vibrate(Math.min(180,55+failures*12));}catch(Exception ignored){}
+    }
+
+    private void evaluateTower(){
+        float height=0f,connectedMass=0f,allMass=0f;
+        int connected=0,stable=0;
+        for(Block b:blocks){
+            if(b.state==Block.LOST||b.state==Block.BROKEN||b.state==Block.HELD)continue;
+            allMass+=b.mass();
+            if(b.state==Block.STABLE){
+                stable++;
+                if(b.groundConnected){connected++;connectedMass+=b.mass();height=Math.max(height,b.maxY());}
+            }
+        }
+        connectedHeight=height;
+        lastConnectedCount=connected;
+        if(height>maxHistoricalHeight)maxHistoricalHeight=height;
+        efficiency=allMass>0?Math.max(0,Math.min(100,Math.round(connectedMass/allMass*100f))):100;
+
+        if(builtCount>=12 && maxHistoricalHeight>720f){
+            float massRatio=allMass>0?connectedMass/allMass:0f;
+            boolean catastrophic=height<maxHistoricalHeight*.43f || massRatio<.23f || connected==0;
+            if(catastrophic){beginEnding();return;}
+        }
+        if(builtCount>=7 && connected==0 && countActive()==0)beginEnding();
+    }
+
+    private int countActive(){int n=0;for(Block b:blocks)if(b.state==Block.ACTIVE)n++;return n;}
+
+    private void beginEnding(){
+        if(ending)return;
+        ending=true;endingTimer=0f;held=null;dragging=false;
+        stopWind();
+        sounds.play(sndCrack,1f,1f,4,0,.78f);
+        try{if(vibrator!=null)vibrator.vibrate(240);}catch(Exception ignored){}
+    }
+
+    private void finishRun(){
+        screen=GAMEOVER;ending=false;paused=false;
+        int h=heightMeters();
+        reward=h+builtCount*2+survivedCollapses*35+Math.round(efficiency*.55f);
+        if(!rewardCommitted){save.addReward(reward,h);rewardCommitted=true;}
+    }
+
+    private void updateConstruction(float dt){
+        ArrayList<Block> needs=new ArrayList<>();
+        for(Block b:blocks)if(b.state==Block.STABLE && b.construction<1f)needs.add(b);
+        if(needs.isEmpty())return;
+        needs.sort((a,b)->Integer.compare(b.id,a.id));
+        int simultaneous=Math.min(needs.size(),Math.max(2,3+save.crew/2));
+        float rate=.105f*save.crewConstructionRate();
+        for(int i=0;i<simultaneous;i++){
+            Block b=needs.get(i);
+            float heightPenalty=1f/(1f+Math.max(0,b.y-cameraY)*.00016f);
+            b.construction=Math.min(1f,b.construction+rate*heightPenalty*dt*(1f+save.crew*.035f));
+        }
+    }
+
+    private void updateParticles(float dt){
+        for(int i=particles.size()-1;i>=0;i--){
+            Particle p=particles.get(i);p.life-=dt;if(p.life<=0){particles.remove(i);continue;}
+            p.vy-=220f*dt;p.x+=p.vx*dt;p.y+=p.vy*dt;p.vx*=.985f;
+        }
+    }
+
+    private void startRun(boolean dailyMode){
+        daily=dailyMode;screen=PLAY;paused=false;stressView=false;ending=false;rewardCommitted=false;
+        blocks.clear();particles.clear();queue.clear();held=null;lastFailed=null;
+        maxHistoricalHeight=connectedHeight=cameraY=cameraTarget=0f;wind=0f;
+        holdTargetX=LOGICAL_W*.5f;currentRotation=0f;nextId=1;builtCount=lostCount=survivedCollapses=collapseBursts=0;
+        totalBuiltMass=0f;efficiency=100;spawnDelay=0f;collapseQuiet=panicTimer=endingTimer=0f;
+        collapseCause="A torre perdeu o caminho de cargas até a fundação.";
+        if(dailyMode){
+            String d=new SimpleDateFormat("yyyyMMdd",Locale.US).format(new Date());
+            try{runSeed=Long.parseLong(d)*7919L+0xBABEL;}catch(Exception e){runSeed=20260807L;}
+        }else runSeed=System.nanoTime()^(save.totalRuns*0x9E3779B97F4A7C15L);
+        director=new DifficultyDirector(runSeed);rng=director.rng();
+        physics=new PhysicsWorld(blocks,this);structure=new StructuralSolver(blocks,save);
+        for(int i=0;i<4;i++)queue.add(director.next(0f));
+        spawnHeld();startWind();
+    }
+
+    private void spawnHeld(){
+        if(ending||screen!=PLAY)return;
+        if(queue.isEmpty())queue.add(director.next(maxHistoricalHeight));
+        MaterialType m=queue.remove(0);queue.add(director.next(maxHistoricalHeight));
+        float d=director.difficulty(maxHistoricalHeight);
+        float w,h;
+        switch(m){
+            case STONE:w=lerp(190,305,rng.nextFloat());h=lerp(88,138,rng.nextFloat());break;
+            case CLAY:w=lerp(185,285,rng.nextFloat());h=lerp(42,74,rng.nextFloat());break;
+            case WOOD:w=lerp(285,450,rng.nextFloat());h=lerp(46,70,rng.nextFloat());break;
+            case ADOBE:w=lerp(175,265,rng.nextFloat());h=lerp(84,126,rng.nextFloat());break;
+            default:w=lerp(150,232,rng.nextFloat());h=lerp(66,102,rng.nextFloat());break;
+        }
+        float sizeNoise=1f+(rng.nextFloat()-.5f)*director.shapeIrregularity(maxHistoricalHeight);
+        w*=sizeNoise;
+        held=new Block(nextId++,m,holdTargetX,cameraY+visibleSpan()-92f,w,h,currentRotation);
+        held.construction=.36f;
+    }
+
+    private void dropHeld(){
+        if(held==null||ending||paused)return;
+        held.state=Block.ACTIVE;
+        held.vx=director.craneSway(maxHistoricalHeight,time)*.34f;
+        held.vy=-12f;
+        held.omega=(rng.nextFloat()-.5f)*.035f*director.difficulty(maxHistoricalHeight);
+        blocks.add(held);totalBuiltMass+=held.mass();builtCount++;
+        held=null;dragging=false;
+    }
+
+    @Override public void onImpact(Block b,float speed){
+        if(speed<80f)return;
+        float vol=Math.min(.85f,.16f+speed/1000f);
+        if(b.material==MaterialType.WOOD)sounds.play(sndWood,vol,vol,1,0,.92f+rng.nextFloat()*.16f);
+        else if(b.material==MaterialType.CLAY)sounds.play(sndClay,vol*.7f,vol*.7f,1,0,.92f+rng.nextFloat()*.12f);
+        else sounds.play(sndStone,vol,vol,1,0,.88f+rng.nextFloat()*.18f);
+        if(speed>150f)burst(b,Math.min(16,3+(int)(speed/75f)));
+    }
+
+    @Override public void onSettled(Block b){
+        b.construction=Math.max(b.construction,.44f);
+        if(b.material==MaterialType.CLAY)sounds.play(sndClay,.52f,.52f,1,0,.96f+rng.nextFloat()*.08f);
+        spawnDelay=.20f;
+    }
+
+    @Override public void onLost(Block b){
+        lostCount++;spawnDelay=Math.max(spawnDelay,.15f);
+        burst(b,8);
+    }
+
+    private void burst(Block b,int count){
+        int color=materialColor(b.material);
+        for(int i=0;i<count && particles.size()<220;i++){
+            float a=(float)(rng!=null?rng.nextFloat()*Math.PI*2:Math.random()*Math.PI*2);
+            float s=35f+(rng!=null?rng.nextFloat()*170f:(float)Math.random()*170f);
+            Particle p=new Particle();p.x=b.x+(rng!=null?(rng.nextFloat()-.5f)*b.w*.7f:0);p.y=b.y;
+            p.vx=(float)Math.cos(a)*s;p.vy=(float)Math.sin(a)*s+55f;p.life=.35f+(rng!=null?rng.nextFloat()*.65f:.4f);p.color=color;p.size=3f+(rng!=null?rng.nextFloat()*7f:4f);particles.add(p);
+        }
+    }
+
+    private void drawBackdrop(Canvas c){
+        float altitude=(screen==MENU||screen==UPGRADES)?0f:cameraY;
+        float t=Math.min(1f,altitude/8500f);
+        int top=mixColor(Color.rgb(54,83,104),Color.rgb(12,18,34),t);
+        int bot=mixColor(Color.rgb(221,172,111),Color.rgb(72,78,96),t);
+        paint.setShader(new LinearGradient(0,0,0,logicalH,top,bot,Shader.TileMode.CLAMP));
+        c.drawRect(0,0,LOGICAL_W,logicalH,paint);paint.setShader(null);
+
+        paint.setColor(mixColor(Color.rgb(235,189,113),Color.rgb(184,190,205),t));paint.setAlpha(185);
+        c.drawCircle(800,230,112,paint);paint.setAlpha(255);
+
+        if(altitude>1500f){
+            paint.setColor(Color.argb((int)(110*Math.min(1,(altitude-1500)/4500f)),245,245,250));
+            for(int i=0;i<34;i++){
+                float sx=(i*293%1040)+20,sy=(i*173%720)+30;float r=(i%4==0?2.2f:1.25f);
+                c.drawCircle(sx,sy,r,paint);
+            }
+        }
+        drawClouds(c,altitude);
+        if(screen==MENU||screen==UPGRADES)drawMenuLandscape(c);
+    }
+
+    private void drawClouds(Canvas c,float altitude){
+        float cloudBand=2600f;
+        float vis=1f-Math.min(1f,Math.abs(altitude-cloudBand)/2800f);
+        if(vis<=.02f)return;
+        paint.setColor(Color.argb((int)(55+90*vis),238,232,219));
+        for(int i=0;i<7;i++){
+            float y=360+(i%3)*230+(float)Math.sin(time*.08+i)*20;
+            float x=((i*217+time*(i%2==0?7:-5))%1400)-160;
+            c.drawOval(new RectF(x,y,x+300+(i%3)*70,y+70),paint);
+            c.drawCircle(x+90,y+8,55,paint);c.drawCircle(x+170,y+3,75,paint);
+        }
+    }
+
+    private void drawMenuLandscape(Canvas c){
