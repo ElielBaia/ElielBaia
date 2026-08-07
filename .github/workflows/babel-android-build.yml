@@ -28,19 +28,17 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Restore auditable BABEL source snapshot
+      - name: Assemble auditable Java source
         shell: bash
         run: |
-          mkdir -p babel-ci
-          : > babel-ci/babel_project_source.zip
-          for f in babel-ci/source-parts/part-*.b64; do
-            echo "Decoding $f"
-            base64 -d "$f" >> babel-ci/babel_project_source.zip
-          done
-          unzip -t babel-ci/babel_project_source.zip
-          unzip -q babel-ci/babel_project_source.zip -d babel-ci
-          test -f babel-ci/project/app/build.gradle
-
+          set -euo pipefail
+          PROJECT=babel-ci/project
+          mkdir -p "$PROJECT/app/src/main/java/com/forsetigames/babel"
+          cat "$PROJECT"/gameview-parts/*.java.part > "$PROJECT/app/src/main/java/com/forsetigames/babel/GameView.java"
+          test -s "$PROJECT/app/src/main/java/com/forsetigames/babel/GameView.java"
+          test -f "$PROJECT/app/build.gradle"
+          test -f "$PROJECT/app/src/main/AndroidManifest.xml"
+          echo "GameView lines: $(wc -l < "$PROJECT/app/src/main/java/com/forsetigames/babel/GameView.java")"
       - name: Generate original textures and sounds
         working-directory: babel-ci/project
         run: python3 tools/generate_assets.py
@@ -50,12 +48,14 @@ jobs:
       - name: Validate installable package structure and signature
         working-directory: babel-ci/project
         run: |
+          set -euo pipefail
           APK=app/build/outputs/apk/debug/app-debug.apk
           test -s "$APK"
           "$ANDROID_HOME/build-tools/35.0.1/aapt" dump badging "$APK" | tee apk-badging.txt
           "$ANDROID_HOME/build-tools/35.0.1/apksigner" verify --verbose --print-certs "$APK" | tee apk-signature.txt
           unzip -t "$APK" | tee apk-zip-test.txt
           sha256sum "$APK" | tee apk-sha256.txt
+          stat -c '%n %s bytes' "$APK" | tee apk-size.txt
           cp "$APK" BABEL-The-Weight-of-Heaven-debug.apk
       - name: Package auditable source snapshot
         working-directory: babel-ci/project
@@ -72,3 +72,4 @@ jobs:
             babel-ci/project/apk-signature.txt
             babel-ci/project/apk-zip-test.txt
             babel-ci/project/apk-sha256.txt
+            babel-ci/project/apk-size.txt
