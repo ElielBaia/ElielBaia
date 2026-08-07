@@ -1,0 +1,130 @@
+        paint.setColor(accent);c.drawRoundRect(new RectF(r.left+15,r.top+15,r.left+31,r.bottom-15),8,8,paint);
+        text.setTextAlign(Paint.Align.LEFT);text.setTypeface(mediumFace);text.setTextSize(28);text.setColor(Color.rgb(246,232,207));c.drawText(name,r.left+52,r.top+42,text);
+        text.setTypeface(regularFace);text.setTextSize(20);text.setColor(Color.argb(205,234,217,191));c.drawText(desc,r.left+52,r.top+74,text);
+        text.setTextSize(18);c.drawText("NÍVEL "+lvl+" / 10",r.left+52,r.top+101,text);
+        RectF buy=new RectF(r.right-220,r.top+24,r.right-24,r.bottom-24);paint.setColor(lvl>=10?Color.argb(100,100,100,100):(save.seals>=cost?Color.rgb(181,119,56):Color.rgb(84,68,51)));c.drawRoundRect(buy,18,18,paint);
+        text.setTextAlign(Paint.Align.CENTER);text.setTypeface(mediumFace);text.setTextSize(21);text.setColor(Color.WHITE);c.drawText(lvl>=10?"MÁXIMO":("MELHORAR  "+cost),buy.centerX(),buy.centerY()+7,text);text.setTextAlign(Paint.Align.LEFT);
+    }
+
+    private void drawGameOver(Canvas c){
+        paint.setColor(Color.argb(215,18,16,14));c.drawRect(0,0,LOGICAL_W,logicalH,paint);
+        float top=190;
+        centerText(c,"BABEL CAIU",top,58,Color.rgb(242,219,184),titleFace);
+        centerText(c,heightMeters()+" m",top+90,72,Color.rgb(203,145,77),titleFace);
+        centerText(c,"A sua torre permaneceu de pé com "+builtCount+" elementos.",top+145,24,Color.argb(220,242,228,205),regularFace);
+
+        RectF card=new RectF(110,top+190,970,top+500);paint.setColor(Color.argb(170,40,34,28));c.drawRoundRect(card,28,28,paint);
+        drawStatLine(c,"Eficiência conectada",efficiency+"%",card.top+64);
+        drawStatLine(c,"Colapsos sobrevividos",String.valueOf(survivedCollapses),card.top+117);
+        drawStatLine(c,"Blocos perdidos",String.valueOf(lostCount),card.top+170);
+        drawStatLine(c,"Recompensa","+"+reward+" selos",card.top+223);
+        text.setTextSize(18);text.setTypeface(regularFace);text.setColor(Color.argb(190,238,219,190));text.setTextAlign(Paint.Align.CENTER);
+        drawWrapped(c,collapseCause,540,card.top+276,760,22);
+
+        btnA.set(155,top+555,925,top+665);drawBigButton(c,btnA,"CONSTRUIR NOVAMENTE",true);
+        btnB.set(155,top+690,925,top+796);drawBigButton(c,btnB,"MENU PRINCIPAL",false);
+        centerText(c,"RECORDE  "+save.bestHeight+" m     •     SELOS  "+save.seals,top+856,24,Color.rgb(229,199,157),mediumFace);
+    }
+
+    private void drawStatLine(Canvas c,String label,String value,float y){
+        text.setTextAlign(Paint.Align.LEFT);text.setTypeface(regularFace);text.setTextSize(22);text.setColor(Color.argb(210,235,218,191));c.drawText(label,155,y,text);
+        text.setTextAlign(Paint.Align.RIGHT);text.setTypeface(mediumFace);text.setTextSize(24);text.setColor(Color.rgb(244,226,198));c.drawText(value,925,y,text);text.setTextAlign(Paint.Align.LEFT);
+    }
+
+    private void drawBigButton(Canvas c,RectF r,String label,boolean primary){
+        paint.setColor(primary?Color.rgb(181,119,56):Color.argb(205,45,39,33));c.drawRoundRect(r,26,26,paint);
+        if(!primary){paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(2);paint.setColor(Color.argb(100,235,212,177));c.drawRoundRect(r,26,26,paint);paint.setStyle(Paint.Style.FILL);}
+        text.setTextAlign(Paint.Align.CENTER);text.setTypeface(mediumFace);text.setTextSize(29);text.setColor(primary?Color.rgb(30,25,21):Color.rgb(242,224,195));c.drawText(label,r.centerX(),r.centerY()+10,text);text.setTextAlign(Paint.Align.LEFT);
+    }
+
+    private void drawActionButton(Canvas c,RectF r,String label,boolean active){
+        paint.setColor(active?Color.rgb(185,124,61):Color.argb(120,97,78,59));c.drawRoundRect(r,18,18,paint);
+        text.setTextAlign(Paint.Align.CENTER);text.setTypeface(mediumFace);text.setTextSize(20);text.setColor(Color.rgb(247,231,205));c.drawText(label,r.centerX(),r.centerY()+7,text);text.setTextAlign(Paint.Align.LEFT);
+    }
+
+    private void drawSmallLabel(Canvas c,String s,float x,float y){text.setTypeface(mediumFace);text.setTextSize(15);text.setColor(Color.argb(180,224,199,161));c.drawText(s,x,y,text);}
+    private void drawValue(Canvas c,String s,float x,float y,float size){text.setTypeface(titleFace);text.setTextSize(size);text.setColor(Color.rgb(246,231,205));c.drawText(s,x,y,text);}
+    private void drawMaterialChip(Canvas c,MaterialType m,float x,float y,float w,float h){paint.setColor(materialColor(m));c.drawRoundRect(new RectF(x-w*.5f,y-h*.5f,x+w*.5f,y+h*.5f),10,10,paint);text.setTextAlign(Paint.Align.CENTER);text.setTypeface(mediumFace);text.setTextSize(12);text.setColor(Color.rgb(36,29,23));c.drawText(m.label.substring(0,Math.min(3,m.label.length())),x,y+4,text);text.setTextAlign(Paint.Align.LEFT);}
+
+    private void centerText(Canvas c,String s,float y,float size,int color,Typeface face){text.setTextAlign(Paint.Align.CENTER);text.setTypeface(face);text.setTextSize(size);text.setColor(color);c.drawText(s,LOGICAL_W*.5f,y,text);text.setTextAlign(Paint.Align.LEFT);}
+
+    private void drawWrapped(Canvas c,String s,float cx,float y,float maxW,float lineH){
+        String[] words=s.split(" ");String line="";ArrayList<String> lines=new ArrayList<>();
+        for(String w:words){String test=line.isEmpty()?w:line+" "+w;if(text.measureText(test)>maxW&&!line.isEmpty()){lines.add(line);line=w;}else line=test;}if(!line.isEmpty())lines.add(line);
+        for(int i=0;i<lines.size();i++)c.drawText(lines.get(i),cx,y+i*lineH,text);
+    }
+
+    private void drawToast(Canvas c){
+        if(toastTimer<=0||toast.isEmpty())return;float a=Math.min(1,toastTimer*2f);
+        text.setTextAlign(Paint.Align.CENTER);text.setTypeface(mediumFace);text.setTextSize(24);float w=text.measureText(toast)+60;
+        paint.setColor(Color.argb((int)(190*a),30,25,21));c.drawRoundRect(new RectF(540-w*.5f,160,540+w*.5f,218),19,19,paint);
+        text.setColor(Color.argb((int)(255*a),245,221,184));c.drawText(toast,540,198,text);text.setTextAlign(Paint.Align.LEFT);
+    }
+
+    private void toast(String s){toast=s;toastTimer=2.4f;}
+
+    @Override public boolean onTouchEvent(MotionEvent e){
+        float x=e.getX()/Math.max(.0001f,scale),y=e.getY()/Math.max(.0001f,scale);
+        int action=e.getActionMasked();
+        if(action!=MotionEvent.ACTION_DOWN&&action!=MotionEvent.ACTION_MOVE&&action!=MotionEvent.ACTION_UP&&action!=MotionEvent.ACTION_CANCEL)return true;
+
+        if(screen==MENU){
+            if(action==MotionEvent.ACTION_UP){if(btnA.contains(x,y))startRun(false);else if(btnB.contains(x,y))startRun(true);else if(btnC.contains(x,y))screen=UPGRADES;}
+            return true;
+        }
+        if(screen==UPGRADES){
+            if(action==MotionEvent.ACTION_UP)handleUpgradeTap(x,y);return true;
+        }
+        if(screen==GAMEOVER){
+            if(action==MotionEvent.ACTION_UP){if(btnA.contains(x,y))startRun(daily);else if(btnB.contains(x,y)){screen=MENU;stopWind();}}
+            return true;
+        }
+        if(screen!=PLAY)return true;
+        if(paused){
+            if(action==MotionEvent.ACTION_UP){if(btnA.contains(x,y)){paused=false;startWind();}else if(btnB.contains(x,y)){paused=false;ending=true;finishRun();stopWind();}}
+            return true;
+        }
+        if(ending)return true;
+
+        if(action==MotionEvent.ACTION_DOWN){
+            if(btnD.contains(x,y)){paused=true;stopWind();return true;}
+            if(btnA.contains(x,y)){stressView=!stressView;return true;}
+            if(btnB.contains(x,y)){currentRotation+=Math.toRadians(15);if(currentRotation>Math.PI*.51f)currentRotation-=Math.PI;return true;}
+            if(held!=null){dragging=true;holdTargetX=Math.max(70,Math.min(LOGICAL_W-70,x));return true;}
+        }else if(action==MotionEvent.ACTION_MOVE){
+            if(dragging&&held!=null)holdTargetX=Math.max(70,Math.min(LOGICAL_W-70,x));
+        }else if(action==MotionEvent.ACTION_UP||action==MotionEvent.ACTION_CANCEL){
+            if(dragging&&held!=null){holdTargetX=Math.max(70,Math.min(LOGICAL_W-70,x));dropHeld();}
+            dragging=false;
+        }
+        return true;
+    }
+
+    private void handleUpgradeTap(float x,float y){
+        float start=205,row=116,gap=16;
+        if(btnA.contains(x,y)){screen=MENU;return;}
+        if(x<70||x>1010)return;
+        int idx=(int)((y-start)/(row+gap));
+        if(idx<0||idx>5)return;
+        float local=(y-start)-idx*(row+gap);if(local>row)return;
+        boolean ok=false;
+        if(idx<5){MaterialType[] ms={MaterialType.STONE,MaterialType.CLAY,MaterialType.WOOD,MaterialType.ADOBE,MaterialType.BRICK};ok=save.buy(ms[idx]);}
+        else ok=save.buyCrew();
+        if(ok){sounds.play(sndWood,.35f,.35f,1,0,1.15f);toast("MELHORIA CONCLUÍDA");}else toast("SELOS INSUFICIENTES OU NÍVEL MÁXIMO");
+    }
+
+    private void startWind(){if(sounds!=null&&windStream==0)windStream=sounds.play(sndWind,0f,0f,0,-1,1f);}
+    private void stopWind(){if(sounds!=null&&windStream!=0){sounds.stop(windStream);windStream=0;}}
+    private void updateWindAudio(){if(windStream==0)startWind();if(windStream!=0){float v=Math.min(.22f,Math.abs(wind)/700f);sounds.setVolume(windStream,v,v);}}
+
+    private float visibleSpan(){return Math.max(1180f,logicalH-300f);}
+    private float worldY(float wy){return logicalH-180f-(wy-cameraY);}
+    private int heightMeters(){return Math.max(0,Math.round(maxHistoricalHeight/10f));}
+    private static float lerp(float a,float b,float t){return a+(b-a)*t;}
+
+    private static int materialColor(MaterialType m){switch(m){case STONE:return Color.rgb(164,143,112);case CLAY:return Color.rgb(181,93,58);case WOOD:return Color.rgb(137,83,43);case ADOBE:return Color.rgb(195,155,105);default:return Color.rgb(161,77,50);}}
+    private static int stressColor(float s){if(s<.6f)return Color.rgb(68,135,111);if(s<.9f)return Color.rgb(213,172,73);if(s<1.1f)return Color.rgb(220,111,57);return Color.rgb(195,49,42);}
+    private static int mixColor(int a,int b,float t){t=Math.max(0,Math.min(1,t));int r=(int)(Color.red(a)+(Color.red(b)-Color.red(a))*t);int g=(int)(Color.green(a)+(Color.green(b)-Color.green(a))*t);int bl=(int)(Color.blue(a)+(Color.blue(b)-Color.blue(a))*t);return Color.rgb(r,g,bl);}
+
+    private static final class Particle{float x,y,vx,vy,life,size;int color;}
+}
