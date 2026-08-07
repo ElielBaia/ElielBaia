@@ -1,0 +1,198 @@
+        float ground=logicalH-170;
+        paint.setColor(Color.rgb(44,37,30));c.drawRect(0,ground,LOGICAL_W,logicalH,paint);
+        paint.setColor(Color.rgb(61,48,36));
+        for(int i=0;i<22;i++){
+            float x=i*55+(i%3)*9;float h=28+(i*37%85);c.drawRect(x,ground-h,x+44,ground,paint);
+            if(i%4==0)c.drawRect(x+12,ground-h-24,x+28,ground-h,paint);
+        }
+        paint.setColor(Color.argb(180,35,30,27));
+        float cx=540;for(int i=0;i<9;i++){float w=390-i*37;float y=ground-42-i*46;c.drawRect(cx-w*.5f,y,cx+w*.5f,y+50,paint);}
+    }
+
+    private void drawWorld(Canvas c){
+        drawGroundAndCity(c);
+        for(Block b:blocks)if(b.state!=Block.LOST&&b.state!=Block.BROKEN)drawBlock(c,b,false);
+        if(held!=null)drawHeld(c);
+        drawWorkers(c);
+        drawParticles(c);
+        drawHud(c);
+        if(paused)drawPauseOverlay(c);
+        if(ending)drawEndingOverlay(c);
+    }
+
+    private void drawGroundAndCity(Canvas c){
+        float gy=worldY(0);
+        if(gy<logicalH+160){
+            paint.setColor(Color.rgb(61,48,34));c.drawRect(0,gy,LOGICAL_W,logicalH+100,paint);
+            paint.setColor(Color.rgb(39,33,28));c.drawRect(0,gy,LOGICAL_W,gy+20,paint);
+            int cityLevel=Math.min(5,(int)(maxHistoricalHeight/1100f));
+            paint.setColor(Color.rgb(78,58,39));
+            for(int i=0;i<14+cityLevel*6;i++){
+                float x=(i*83+17)%1050;float h=28+(i*29%(55+cityLevel*18));
+                c.drawRect(x,gy-h,x+45+(i%3)*10,gy,paint);
+            }
+        }
+    }
+
+    private void drawHeld(Canvas c){
+        float sy=worldY(held.y);
+        float hookY=Math.max(42,sy-held.h*.7f-88f);
+        paint.setColor(Color.argb(180,37,31,26));paint.setStrokeWidth(4f);
+        c.drawLine(held.x,0,held.x,hookY,paint);c.drawCircle(held.x,hookY,8,paint);
+        c.drawLine(held.x,hookY,held.x-held.w*.34f,sy-held.h*.37f,paint);
+        c.drawLine(held.x,hookY,held.x+held.w*.34f,sy-held.h*.37f,paint);
+        drawBlock(c,held,true);
+    }
+
+    private void drawBlock(Canvas c,Block b,boolean preview){
+        float sy=worldY(b.y);
+        if(sy<-300||sy>logicalH+300)return;
+        c.save();c.translate(b.x,sy);c.rotate((float)Math.toDegrees(-b.angle));
+        RectF dst=new RectF(-b.w*.5f,-b.h*.5f,b.w*.5f,b.h*.5f);
+        Bitmap bm=textures.get(b.material);
+        paint.setAlpha(preview?235:255);
+        if(bm!=null)c.drawBitmap(bm,null,dst,paint);else{paint.setColor(materialColor(b.material));c.drawRect(dst,paint);}
+        paint.setAlpha(255);
+
+        paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(Math.max(2f,b.h*.035f));
+        paint.setColor(Color.argb(105,255,235,194));c.drawLine(-b.w*.46f,-b.h*.44f,b.w*.46f,-b.h*.44f,paint);
+        paint.setColor(Color.argb(120,42,31,23));c.drawLine(-b.w*.46f,b.h*.43f,b.w*.46f,b.h*.43f,paint);
+        paint.setStyle(Paint.Style.FILL);
+
+        if(b.material==MaterialType.CLAY && b.state==Block.STABLE){
+            paint.setColor(Color.argb((int)(80*(1-b.cure)),255,202,144));
+            c.drawRoundRect(new RectF(-b.w*.48f,-b.h*.47f,b.w*.48f,b.h*.47f),b.h*.25f,b.h*.25f,paint);
+        }
+        if(b.construction<.98f && b.state==Block.STABLE){
+            paint.setColor(Color.argb(75,255,221,155));
+            float ww=b.w*.74f;c.drawRect(-ww*.5f,b.h*.24f, -ww*.5f+ww*b.construction,b.h*.30f,paint);
+        }
+        drawCracks(c,b);
+        if(stressView&&!preview&&b.state==Block.STABLE){
+            float s=Math.max(0,Math.min(1.45f,b.stress));
+            int col=stressColor(s);paint.setColor(col);paint.setAlpha((int)(35+Math.min(1,s)*105));c.drawRect(dst,paint);paint.setAlpha(255);
+        }
+        c.restore();
+    }
+
+    private void drawCracks(Canvas c,Block b){
+        float d=Math.max(b.damage,b.fatigue*.65f);
+        if(d<.14f)return;
+        paint.setColor(Color.argb((int)Math.min(210,70+d*145),45,32,25));paint.setStrokeWidth(2f+Math.min(3f,d*2f));paint.setStyle(Paint.Style.STROKE);
+        int lines=1+(int)(d*4f);
+        for(int k=0;k<lines;k++){
+            float seed=(b.id*37+k*71)%100/100f;
+            Path pth=new Path();float x=-b.w*.28f+b.w*.56f*seed,y=-b.h*.42f;
+            pth.moveTo(x,y);
+            for(int i=1;i<=4;i++){
+                x+=(float)Math.sin(b.id*1.7+k*2.4+i)*b.w*.055f;
+                y=-b.h*.42f+i*b.h*.21f;pth.lineTo(x,y);
+            }c.drawPath(pth,paint);
+        }paint.setStyle(Paint.Style.FILL);
+    }
+
+    private void drawParticles(Canvas c){
+        for(Particle p:particles){
+            float sy=worldY(p.y);float alpha=Math.min(1,p.life*2f);
+            paint.setColor(p.color);paint.setAlpha((int)(alpha*170));c.drawCircle(p.x,sy,p.size,paint);
+        }paint.setAlpha(255);
+    }
+
+    private void drawWorkers(Canvas c){
+        int crew=Math.min(18,6+save.crew);
+        ArrayList<Block> work=new ArrayList<>();
+        for(Block b:blocks)if(b.state==Block.STABLE&&b.construction<.995f)work.add(b);
+        work.sort((a,b)->Integer.compare(b.id,a.id));
+        for(int i=0;i<crew;i++){
+            float x,y;
+            if(panicTimer>0){
+                y=worldY(12);float dir=i%2==0?-1:1;x=540+dir*(90+i*23+panicTimer*55);
+            }else if(!work.isEmpty()){
+                Block b=work.get(i%Math.min(work.size(),4));x=b.x-b.w*.34f+(i%5)*b.w*.17f;y=worldY(b.maxY()+5);
+            }else{x=120+(i*137)%840;y=worldY(10);}
+            if(y<-30||y>logicalH+30)continue;
+            drawWorker(c,x,y,i);
+        }
+    }
+
+    private void drawWorker(Canvas c,float x,float y,int i){
+        float bob=(float)Math.sin(time*7.5+i)*2f;
+        paint.setColor(Color.rgb(42,31,24));c.drawCircle(x,y-20+bob,7,paint);paint.setStrokeWidth(4f);
+        c.drawLine(x,y-13+bob,x,y+8+bob,paint);
+        float step=(float)Math.sin(time*8+i)*8f;c.drawLine(x,y+7+bob,x-6+step*.35f,y+20,paint);c.drawLine(x,y+7+bob,x+6-step*.35f,y+20,paint);
+        c.drawLine(x,y-4+bob,x-10-step*.2f,y+5,paint);c.drawLine(x,y-4+bob,x+10+step*.2f,y+4,paint);
+    }
+
+    private void drawHud(Canvas c){
+        paint.setColor(Color.argb(145,20,18,16));c.drawRoundRect(new RectF(24,24,1056,146),26,26,paint);
+        drawSmallLabel(c,"ALTURA",54,55);drawValue(c,heightMeters()+" m",54,104,33);
+        drawSmallLabel(c,"ESTRUTURA",296,55);drawValue(c,stressLabel(),296,104,29);
+        drawSmallLabel(c,"VENTO",564,55);drawValue(c,Math.round(Math.abs(wind))+"",564,104,29);
+        drawSmallLabel(c,"PRÓXIMOS",735,55);
+        for(int i=0;i<Math.min(3,queue.size());i++)drawMaterialChip(c,queue.get(i),750+i*92,102,74,42);
+        btnD.set(988,48,1044,124);paint.setColor(Color.argb(110,255,255,255));c.drawCircle(1016,86,25,paint);
+        paint.setColor(Color.rgb(30,26,23));c.drawRect(1008,76,1013,96,paint);c.drawRect(1019,76,1024,96,paint);
+
+        float bottom=logicalH-138;
+        paint.setColor(Color.argb(155,20,18,16));c.drawRoundRect(new RectF(24,bottom,1056,logicalH-24),28,28,paint);
+        btnA.set(45,bottom+18,264,logicalH-42);btnB.set(816,bottom+18,1035,logicalH-42);
+        drawActionButton(c,btnA,stressView?"ESTRUTURA ON":"ESTRUTURA",stressView);
+        drawActionButton(c,btnB,"GIRAR 15°",false);
+        text.setTypeface(mediumFace);text.setTextSize(25);text.setTextAlign(Paint.Align.CENTER);text.setColor(Color.argb(220,255,244,221));
+        c.drawText(held!=null?"ARRASTE A PEÇA • SOLTE PARA CONSTRUIR":"ASSENTANDO…",540,bottom+66,text);
+        text.setTextAlign(Paint.Align.LEFT);
+    }
+
+    private String stressLabel(){
+        float s=structure!=null?structure.maxStress():0f;
+        if(s<.72f)return "ESTÁVEL";if(s<.95f)return "CARREGADA";if(s<1.12f)return "CRÍTICA";return "FALHANDO";
+    }
+
+    private void drawPauseOverlay(Canvas c){
+        paint.setColor(Color.argb(205,17,15,14));c.drawRect(0,0,LOGICAL_W,logicalH,paint);
+        centerText(c,"PAUSADO",logicalH*.40f,54,Color.WHITE,titleFace);
+        btnA.set(210,logicalH*.48f,870,logicalH*.48f+105);drawBigButton(c,btnA,"CONTINUAR",true);
+        btnB.set(210,logicalH*.48f+130,870,logicalH*.48f+235);drawBigButton(c,btnB,"ABANDONAR TORRE",false);
+    }
+
+    private void drawEndingOverlay(Canvas c){
+        float a=Math.min(1f,endingTimer/.8f);
+        paint.setColor(Color.argb((int)(80*a),20,17,14));c.drawRect(0,0,LOGICAL_W,logicalH,paint);
+        if(endingTimer>.55f){centerText(c,"COLAPSO ESTRUTURAL",180,37,Color.argb(235,255,221,172),titleFace);}
+    }
+
+    private void drawMenu(Canvas c){
+        Rect src=new Rect(0,0,icon.getWidth(),icon.getHeight());RectF dst=new RectF(405,105,675,375);
+        paint.setAlpha(245);c.drawBitmap(icon,src,dst,paint);paint.setAlpha(255);
+        centerText(c,"BABEL",430,92,Color.rgb(244,227,195),titleFace);
+        centerText(c,"THE WEIGHT OF HEAVEN",485,28,Color.rgb(222,182,126),mediumFace);
+        centerText(c,"Construa contra o peso de tudo o que já construiu.",545,25,Color.argb(220,243,231,210),regularFace);
+
+        float y=Math.min(logicalH-650,650);if(y<580)y=580;
+        btnA.set(155,y,925,y+116);drawBigButton(c,btnA,"CONSTRUIR BABEL",true);
+        btnB.set(155,y+142,925,y+248);drawBigButton(c,btnB,"BABEL DIÁRIA",false);
+        btnC.set(155,y+274,925,y+380);drawBigButton(c,btnC,"OFICINAS & MATERIAIS",false);
+        centerText(c,"RECORDE  "+save.bestHeight+" m     •     SELOS  "+save.seals,y+448,27,Color.rgb(239,218,182),mediumFace);
+        centerText(c,"Pedra comprime • madeira flete • argila cura e adere",logicalH-87,21,Color.argb(190,242,226,199),regularFace);
+    }
+
+    private void drawUpgrades(Canvas c){
+        paint.setColor(Color.argb(100,18,15,13));c.drawRect(0,0,LOGICAL_W,logicalH,paint);
+        centerText(c,"OFICINAS DE BABEL",92,48,Color.rgb(245,227,194),titleFace);
+        centerText(c,"SELOS DISPONÍVEIS  "+save.seals,142,24,Color.rgb(221,181,125),mediumFace);
+        float y=205,row=116,gap=16;
+        MaterialType[] mats={MaterialType.STONE,MaterialType.CLAY,MaterialType.WOOD,MaterialType.ADOBE,MaterialType.BRICK};
+        for(int i=0;i<mats.length;i++){
+            MaterialType m=mats[i];RectF r=new RectF(70,y+i*(row+gap),1010,y+i*(row+gap)+row);drawUpgradeRow(c,r,m.label,upgradeDesc(m),save.level(m),save.upgradeCost(m),materialColor(m));
+        }
+        float cy=y+5*(row+gap);RectF crewR=new RectF(70,cy,1010,cy+row);drawUpgradeRow(c,crewR,"CONSTRUTORES","Assentamento e consolidação mais rápidos",save.crew,save.crewCost(),Color.rgb(198,151,82));
+        btnA.set(70,Math.min(logicalH-132,cy+155),1010,Math.min(logicalH-36,cy+251));drawBigButton(c,btnA,"VOLTAR",false);
+        centerText(c,"Melhorias são limitadas: habilidade e caminho de cargas continuam decisivos.",logicalH-18,18,Color.argb(185,241,225,198),regularFace);
+    }
+
+    private String upgradeDesc(MaterialType m){
+        switch(m){case STONE:return "+4,5% resistência à compressão por nível";case CLAY:return "+4,5% resistência e +5,5% aderência/cura";case WOOD:return "+4,5% capacidade em vigas e apoios";case ADOBE:return "+4,5% capacidade do adobe";default:return "+4,5% capacidade de alvenaria";}
+    }
+
+    private void drawUpgradeRow(Canvas c,RectF r,String name,String desc,int lvl,int cost,int accent){
+        paint.setColor(Color.argb(185,29,25,21));c.drawRoundRect(r,22,22,paint);
