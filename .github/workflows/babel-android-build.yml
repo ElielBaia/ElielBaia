@@ -13,7 +13,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -21,10 +21,10 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: android-actions/setup-android@v3
-      - name: Install Android SDK 35
+      - name: Install Android SDK and emulator image
         run: |
           yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager 'platform-tools' 'platforms;android-35' 'build-tools;35.0.1'
+          sdkmanager 'platform-tools' 'platforms;android-35' 'build-tools;35.0.1' 'emulator' 'system-images;android-28;default;x86_64'
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
@@ -54,13 +54,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          echo "Compiled class inventory:"
           find app/build/intermediates/javac -type f -name '*.class' -printf '%p %s bytes\n' | sort | tee compiled-classes.txt
           for cls in MainActivity GameView PhysicsWorld StructuralSolver SaveData DifficultyDirector Block MaterialSpec MaterialType SupportContact; do
-            if ! find app/build/intermediates/javac -type f -name "$cls.class" -print -quit | grep -q .; then
-              echo "FATAL: $cls.class was not produced by javac" >&2
-              exit 31
-            fi
+            find app/build/intermediates/javac -type f -name "$cls.class" -print -quit | grep -q . || { echo "FATAL: $cls.class absent" >&2; exit 31; }
           done
       - name: Validate APK, DEX game classes, package and signature
         working-directory: babel-ci/project
@@ -71,13 +67,9 @@ jobs:
           test -s "$APK"
           rm -rf apk-inspect && mkdir apk-inspect
           unzip -q "$APK" 'classes*.dex' -d apk-inspect
-          echo "DEX files:"
           ls -lh apk-inspect/classes*.dex
           for cls in MainActivity GameView PhysicsWorld StructuralSolver SaveData DifficultyDirector Block MaterialSpec MaterialType SupportContact; do
-            if ! "$ANDROID_HOME/build-tools/35.0.1/dexdump" apk-inspect/classes*.dex | grep -Fq "Lcom/forsetigames/babel/$cls;"; then
-              echo "FATAL: $cls is absent from final DEX" >&2
-              exit 32
-            fi
+            "$ANDROID_HOME/build-tools/35.0.1/dexdump" apk-inspect/classes*.dex | grep -Fq "Lcom/forsetigames/babel/$cls;" || { echo "FATAL: $cls absent from DEX" >&2; exit 32; }
           done
           "$ANDROID_HOME/build-tools/35.0.1/aapt" dump badging "$APK" | tee apk-badging.txt
           "$ANDROID_HOME/build-tools/35.0.1/apksigner" verify --verbose --print-certs "$APK" | tee apk-signature.txt
@@ -85,66 +77,86 @@ jobs:
           sha256sum "$APK" | tee apk-sha256.txt
           stat -c '%n %s bytes' "$APK" | tee apk-size.txt
           cp "$APK" BABEL-The-Weight-of-Heaven-debug.apk
-      - name: Enable KVM acceleration for Android emulator
+      - name: Enable KVM acceleration
         shell: bash
         run: |
           set -euo pipefail
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm || true
-          if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; ls -l /dev/kvm; else echo 'No /dev/kvm device present'; fi
-      - name: Install, launch and interact with BABEL on Android emulator
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: 29
-          arch: x86_64
-          profile: pixel_2
-          disable-animations: true
-          script: |
-            set -euo pipefail
-            cd babel-ci/project
-            APK=app/build/outputs/apk/debug/app-debug.apk
+          if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; ls -l /dev/kvm; fi
+      - name: Boot Android emulator manually and test BABEL gameplay
+        working-directory: babel-ci/project
+        shell: bash
+        run: |
+          set -euo pipefail
+          : > emulator-boot.txt
+          echo no | avdmanager create avd -n babel_test -k 'system-images;android-28;default;x86_64' -d pixel_2 --force 2>&1 | tee emulator-avd-create.txt
+          "$ANDROID_HOME/emulator/emulator" -avd babel_test -no-window -noaudio -no-boot-anim -gpu swiftshader_indirect -no-snapshot -camera-back none > emulator-boot.txt 2>&1 &
+          EMU_PID=$!
+          trap 'adb emu kill >/dev/null 2>&1 || true; kill "$EMU_PID" >/dev/null 2>&1 || true' EXIT
 
-            adb install -r "$APK" 2>&1 | tee emulator-install.txt
-            grep -Fq 'Success' emulator-install.txt
-
-            adb logcat -c
-            adb shell am force-stop com.forsetigames.babel
-            adb shell am start -W -n com.forsetigames.babel/.MainActivity 2>&1 | tee emulator-launch.txt
-            sleep 3
-
-            PID1=$(adb shell pidof com.forsetigames.babel | tr -d '\r')
-            test -n "$PID1"
-            echo "BABEL menu process alive: $PID1" | tee emulator-process.txt
-            adb shell dumpsys activity activities > emulator-activity.txt
-            grep -F 'com.forsetigames.babel' emulator-activity.txt | head -n 12 > emulator-activity-babel.txt || true
-            adb exec-out screencap -p > emulator-home.png
-            test -s emulator-home.png
-
-            # Enter gameplay and actually release one construction element.
-            adb shell input tap 540 710
-            sleep 2
-            PID2=$(adb shell pidof com.forsetigames.babel | tr -d '\r')
-            test -n "$PID2"
-            adb exec-out screencap -p > emulator-game-start.png
-            test -s emulator-game-start.png
-            adb shell input swipe 540 225 650 225 350
-            sleep 3
-            PID3=$(adb shell pidof com.forsetigames.babel | tr -d '\r')
-            test -n "$PID3"
-            echo "BABEL gameplay process alive: $PID3" | tee -a emulator-process.txt
-            adb exec-out screencap -p > emulator-gameplay.png
-            test -s emulator-gameplay.png
-
-            adb logcat -d > emulator-logcat.txt
-            if grep -Fq 'Process: com.forsetigames.babel' emulator-logcat.txt && grep -Fq 'FATAL EXCEPTION' emulator-logcat.txt; then
-              echo 'FATAL runtime exception detected for BABEL' >&2
-              exit 33
+          BOOTED=0
+          for i in $(seq 1 120); do
+            if adb devices 2>/dev/null | grep -q '^emulator-'; then
+              COMPLETE=$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)
+              if [ "$COMPLETE" = "1" ]; then BOOTED=1; break; fi
             fi
-            echo 'INSTALL=PASS' > emulator-status.txt
-            echo 'MENU_LAUNCH=PASS' >> emulator-status.txt
-            echo 'GAMEPLAY_INTERACTION=PASS' >> emulator-status.txt
-            echo "PID=$PID3" >> emulator-status.txt
+            if ! kill -0 "$EMU_PID" 2>/dev/null; then break; fi
+            sleep 2
+          done
+          if [ "$BOOTED" != "1" ]; then
+            echo 'FATAL: emulator did not finish booting' >&2
+            tail -n 240 emulator-boot.txt >&2 || true
+            exit 41
+          fi
+          echo 'EMULATOR_BOOT=PASS' > emulator-status.txt
+          adb shell settings put global window_animation_scale 0 || true
+          adb shell settings put global transition_animation_scale 0 || true
+          adb shell settings put global animator_duration_scale 0 || true
+          adb shell wm size 1080x1920 || true
+          adb shell input keyevent 82 || true
+
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          adb install -r "$APK" 2>&1 | tee emulator-install.txt
+          grep -Fq 'Success' emulator-install.txt
+          echo 'INSTALL=PASS' >> emulator-status.txt
+
+          adb logcat -c
+          adb shell am force-stop com.forsetigames.babel
+          adb shell am start -W -n com.forsetigames.babel/.MainActivity 2>&1 | tee emulator-launch.txt
+          sleep 4
+          PID1=$(adb shell pidof com.forsetigames.babel | tr -d '\r')
+          test -n "$PID1"
+          echo "MENU_LAUNCH=PASS PID=$PID1" >> emulator-status.txt
+          adb shell dumpsys activity activities > emulator-activity.txt
+          grep -F 'com.forsetigames.babel' emulator-activity.txt | head -n 20 > emulator-activity-babel.txt || true
+          adb exec-out screencap -p > emulator-home.png
+          test -s emulator-home.png
+
+          # Pixel 2 is 1080x1920; button center is around logical y 650-770.
+          adb shell input tap 540 700
+          sleep 3
+          PID2=$(adb shell pidof com.forsetigames.babel | tr -d '\r')
+          test -n "$PID2"
+          adb exec-out screencap -p > emulator-game-start.png
+          test -s emulator-game-start.png
+
+          # Drag the suspended first block and release it so the rigid-body/structural loop runs.
+          adb shell input swipe 540 260 670 260 500
+          sleep 5
+          PID3=$(adb shell pidof com.forsetigames.babel | tr -d '\r')
+          test -n "$PID3"
+          adb exec-out screencap -p > emulator-gameplay.png
+          test -s emulator-gameplay.png
+          echo "GAMEPLAY_INTERACTION=PASS PID=$PID3" >> emulator-status.txt
+
+          adb logcat -d > emulator-logcat.txt
+          if grep -Fq 'Process: com.forsetigames.babel' emulator-logcat.txt && grep -Fq 'FATAL EXCEPTION' emulator-logcat.txt; then
+            echo 'FATAL runtime exception detected for BABEL' >&2
+            exit 42
+          fi
+          echo 'NO_FATAL_RUNTIME_EXCEPTION=PASS' >> emulator-status.txt
       - name: Upload emulator diagnostics
         if: always()
         uses: actions/upload-artifact@v4
@@ -153,9 +165,10 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
           path: |
+            babel-ci/project/emulator-avd-create.txt
+            babel-ci/project/emulator-boot.txt
             babel-ci/project/emulator-install.txt
             babel-ci/project/emulator-launch.txt
-            babel-ci/project/emulator-process.txt
             babel-ci/project/emulator-activity.txt
             babel-ci/project/emulator-activity-babel.txt
             babel-ci/project/emulator-logcat.txt
@@ -180,10 +193,6 @@ jobs:
             babel-ci/project/apk-sha256.txt
             babel-ci/project/apk-size.txt
             babel-ci/project/compiled-classes.txt
-            babel-ci/project/emulator-install.txt
-            babel-ci/project/emulator-launch.txt
-            babel-ci/project/emulator-process.txt
-            babel-ci/project/emulator-activity-babel.txt
             babel-ci/project/emulator-status.txt
             babel-ci/project/emulator-home.png
             babel-ci/project/emulator-game-start.png
