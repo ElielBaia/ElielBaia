@@ -40,7 +40,6 @@ jobs:
           test -s "$PROJECT/app/src/main/java/com/forsetigames/babel/MainActivity.java"
           test -s "$PROJECT/app/src/main/java/com/forsetigames/babel/PhysicsWorld.java"
           test -s "$PROJECT/app/src/main/java/com/forsetigames/babel/StructuralSolver.java"
-          echo "Java source inventory:"
           find "$PROJECT/app/src/main/java" -name '*.java' -type f -printf '%p %s bytes\n' | sort
           echo "GameView lines: $(wc -l < "$PROJECT/app/src/main/java/com/forsetigames/babel/GameView.java")"
       - name: Generate original textures and sounds
@@ -90,8 +89,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          export ANDROID_AVD_HOME="$PWD/.android/avd"
+          mkdir -p "$ANDROID_AVD_HOME"
           : > emulator-boot.txt
-          echo no | avdmanager create avd -n babel_test -k 'system-images;android-28;default;x86_64' -d pixel_2 --force 2>&1 | tee emulator-avd-create.txt
+          echo no | avdmanager create avd -n babel_test -k 'system-images;android-28;default;x86_64' -p "$ANDROID_AVD_HOME/babel_test.avd" -d pixel_2 --force 2>&1 | tee emulator-avd-create.txt
+          echo 'AVD inventory:' | tee emulator-avd-list.txt
+          "$ANDROID_HOME/emulator/emulator" -list-avds | tee -a emulator-avd-list.txt
+          test -f "$ANDROID_AVD_HOME/babel_test.ini"
+          test -d "$ANDROID_AVD_HOME/babel_test.avd"
           "$ANDROID_HOME/emulator/emulator" -avd babel_test -no-window -noaudio -no-boot-anim -gpu swiftshader_indirect -no-snapshot -camera-back none > emulator-boot.txt 2>&1 &
           EMU_PID=$!
           trap 'adb emu kill >/dev/null 2>&1 || true; kill "$EMU_PID" >/dev/null 2>&1 || true' EXIT
@@ -134,7 +139,6 @@ jobs:
           adb exec-out screencap -p > emulator-home.png
           test -s emulator-home.png
 
-          # Pixel 2 is 1080x1920; button center is around logical y 650-770.
           adb shell input tap 540 700
           sleep 3
           PID2=$(adb shell pidof com.forsetigames.babel | tr -d '\r')
@@ -142,7 +146,6 @@ jobs:
           adb exec-out screencap -p > emulator-game-start.png
           test -s emulator-game-start.png
 
-          # Drag the suspended first block and release it so the rigid-body/structural loop runs.
           adb shell input swipe 540 260 670 260 500
           sleep 5
           PID3=$(adb shell pidof com.forsetigames.babel | tr -d '\r')
@@ -166,6 +169,7 @@ jobs:
           retention-days: 7
           path: |
             babel-ci/project/emulator-avd-create.txt
+            babel-ci/project/emulator-avd-list.txt
             babel-ci/project/emulator-boot.txt
             babel-ci/project/emulator-install.txt
             babel-ci/project/emulator-launch.txt
@@ -178,7 +182,7 @@ jobs:
             babel-ci/project/emulator-gameplay.png
       - name: Package auditable source snapshot
         working-directory: babel-ci/project
-        run: zip -qr BABEL-Android-Source.zip . -x '.gradle/*' 'app/build/*' 'apk-inspect/*'
+        run: zip -qr BABEL-Android-Source.zip . -x '.gradle/*' 'app/build/*' 'apk-inspect/*' '.android/*'
       - uses: actions/upload-artifact@v4
         with:
           name: BABEL-Android-APK
