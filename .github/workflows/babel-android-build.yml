@@ -85,7 +85,7 @@ jobs:
           sha256sum "$APK" | tee apk-sha256.txt
           stat -c '%n %s bytes' "$APK" | tee apk-size.txt
           cp "$APK" BABEL-The-Weight-of-Heaven-debug.apk
-      - name: Install and launch BABEL on Android emulator
+      - name: Install, launch and interact with BABEL on Android emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 29
@@ -97,21 +97,65 @@ jobs:
             set -euo pipefail
             cd babel-ci/project
             APK=app/build/outputs/apk/debug/app-debug.apk
-            adb install -r "$APK" | tee emulator-install.txt
+
+            adb install -r "$APK" 2>&1 | tee emulator-install.txt
+            grep -Fq 'Success' emulator-install.txt
+
             adb logcat -c
             adb shell am force-stop com.forsetigames.babel
-            adb shell am start -W -n com.forsetigames.babel/.MainActivity | tee emulator-launch.txt
+            adb shell am start -W -n com.forsetigames.babel/.MainActivity 2>&1 | tee emulator-launch.txt
             sleep 3
-            PID=$(adb shell pidof com.forsetigames.babel | tr -d '\r')
-            test -n "$PID"
-            echo "BABEL process alive: $PID" | tee emulator-process.txt
-            adb shell dumpsys activity activities | grep -F 'com.forsetigames.babel/.MainActivity' | head -n 5 | tee emulator-activity.txt
+
+            PID1=$(adb shell pidof com.forsetigames.babel | tr -d '\r')
+            test -n "$PID1"
+            echo "BABEL menu process alive: $PID1" | tee emulator-process.txt
+            adb shell dumpsys activity activities > emulator-activity.txt
+            grep -F 'com.forsetigames.babel' emulator-activity.txt | head -n 12 > emulator-activity-babel.txt || true
             adb exec-out screencap -p > emulator-home.png
             test -s emulator-home.png
-            if adb logcat -d --pid="$PID" '*:E' | grep -E 'FATAL EXCEPTION|AndroidRuntime'; then
-              echo 'FATAL runtime exception detected' >&2
+
+            # Enter gameplay and actually release one construction element.
+            adb shell input tap 540 710
+            sleep 2
+            PID2=$(adb shell pidof com.forsetigames.babel | tr -d '\r')
+            test -n "$PID2"
+            adb exec-out screencap -p > emulator-game-start.png
+            test -s emulator-game-start.png
+            adb shell input swipe 540 225 650 225 350
+            sleep 3
+            PID3=$(adb shell pidof com.forsetigames.babel | tr -d '\r')
+            test -n "$PID3"
+            echo "BABEL gameplay process alive: $PID3" | tee -a emulator-process.txt
+            adb exec-out screencap -p > emulator-gameplay.png
+            test -s emulator-gameplay.png
+
+            adb logcat -d > emulator-logcat.txt
+            if grep -Fq 'Process: com.forsetigames.babel' emulator-logcat.txt && grep -Fq 'FATAL EXCEPTION' emulator-logcat.txt; then
+              echo 'FATAL runtime exception detected for BABEL' >&2
               exit 33
             fi
+            echo 'INSTALL=PASS' > emulator-status.txt
+            echo 'MENU_LAUNCH=PASS' >> emulator-status.txt
+            echo 'GAMEPLAY_INTERACTION=PASS' >> emulator-status.txt
+            echo "PID=$PID3" >> emulator-status.txt
+      - name: Upload emulator diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: BABEL-Emulator-Diagnostics
+          if-no-files-found: ignore
+          retention-days: 7
+          path: |
+            babel-ci/project/emulator-install.txt
+            babel-ci/project/emulator-launch.txt
+            babel-ci/project/emulator-process.txt
+            babel-ci/project/emulator-activity.txt
+            babel-ci/project/emulator-activity-babel.txt
+            babel-ci/project/emulator-logcat.txt
+            babel-ci/project/emulator-status.txt
+            babel-ci/project/emulator-home.png
+            babel-ci/project/emulator-game-start.png
+            babel-ci/project/emulator-gameplay.png
       - name: Package auditable source snapshot
         working-directory: babel-ci/project
         run: zip -qr BABEL-Android-Source.zip . -x '.gradle/*' 'app/build/*' 'apk-inspect/*'
@@ -132,5 +176,8 @@ jobs:
             babel-ci/project/emulator-install.txt
             babel-ci/project/emulator-launch.txt
             babel-ci/project/emulator-process.txt
-            babel-ci/project/emulator-activity.txt
+            babel-ci/project/emulator-activity-babel.txt
+            babel-ci/project/emulator-status.txt
             babel-ci/project/emulator-home.png
+            babel-ci/project/emulator-game-start.png
+            babel-ci/project/emulator-gameplay.png
