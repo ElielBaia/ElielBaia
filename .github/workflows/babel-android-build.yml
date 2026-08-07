@@ -13,7 +13,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -28,6 +28,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
+          cache-disabled: true
       - name: Assemble auditable Java source
         shell: bash
         run: |
@@ -36,21 +37,48 @@ jobs:
           mkdir -p "$PROJECT/app/src/main/java/com/forsetigames/babel"
           cat "$PROJECT"/gameview-parts/*.java.part > "$PROJECT/app/src/main/java/com/forsetigames/babel/GameView.java"
           test -s "$PROJECT/app/src/main/java/com/forsetigames/babel/GameView.java"
-          test -f "$PROJECT/app/build.gradle"
-          test -f "$PROJECT/app/src/main/AndroidManifest.xml"
+          test -s "$PROJECT/app/src/main/java/com/forsetigames/babel/MainActivity.java"
+          test -s "$PROJECT/app/src/main/java/com/forsetigames/babel/PhysicsWorld.java"
+          test -s "$PROJECT/app/src/main/java/com/forsetigames/babel/StructuralSolver.java"
+          echo "Java source inventory:"
+          find "$PROJECT/app/src/main/java" -name '*.java' -type f -printf '%p %s bytes\n' | sort
           echo "GameView lines: $(wc -l < "$PROJECT/app/src/main/java/com/forsetigames/babel/GameView.java")"
       - name: Generate original textures and sounds
         working-directory: babel-ci/project
         run: python3 tools/generate_assets.py
-      - name: Build native Android APK
+      - name: Clean build native Android APK without cache
         working-directory: babel-ci/project
-        run: gradle --no-daemon --stacktrace :app:assembleDebug
-      - name: Validate installable package structure and signature
+        run: gradle --no-daemon --no-build-cache --rerun-tasks --stacktrace clean :app:assembleDebug
+      - name: Verify compiled game classes exist before DEX validation
         working-directory: babel-ci/project
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Compiled class inventory:"
+          find app/build/intermediates/javac -type f -name '*.class' -printf '%p %s bytes\n' | sort | tee compiled-classes.txt
+          for cls in MainActivity GameView PhysicsWorld StructuralSolver SaveData DifficultyDirector Block MaterialSpec MaterialType SupportContact; do
+            if ! find app/build/intermediates/javac -type f -name "$cls.class" -print -quit | grep -q .; then
+              echo "FATAL: $cls.class was not produced by javac" >&2
+              exit 31
+            fi
+          done
+      - name: Validate APK, DEX game classes, package and signature
+        working-directory: babel-ci/project
+        shell: bash
         run: |
           set -euo pipefail
           APK=app/build/outputs/apk/debug/app-debug.apk
           test -s "$APK"
+          rm -rf apk-inspect && mkdir apk-inspect
+          unzip -q "$APK" 'classes*.dex' -d apk-inspect
+          echo "DEX files:"
+          ls -lh apk-inspect/classes*.dex
+          for cls in MainActivity GameView PhysicsWorld StructuralSolver SaveData DifficultyDirector Block MaterialSpec MaterialType SupportContact; do
+            if ! "$ANDROID_HOME/build-tools/35.0.1/dexdump" apk-inspect/classes*.dex | grep -Fq "Lcom/forsetigames/babel/$cls;"; then
+              echo "FATAL: $cls is absent from final DEX" >&2
+              exit 32
+            fi
+          done
           "$ANDROID_HOME/build-tools/35.0.1/aapt" dump badging "$APK" | tee apk-badging.txt
           "$ANDROID_HOME/build-tools/35.0.1/apksigner" verify --verbose --print-certs "$APK" | tee apk-signature.txt
           unzip -t "$APK" | tee apk-zip-test.txt
@@ -59,7 +87,7 @@ jobs:
           cp "$APK" BABEL-The-Weight-of-Heaven-debug.apk
       - name: Package auditable source snapshot
         working-directory: babel-ci/project
-        run: zip -qr BABEL-Android-Source.zip . -x '.gradle/*' 'app/build/*'
+        run: zip -qr BABEL-Android-Source.zip . -x '.gradle/*' 'app/build/*' 'apk-inspect/*'
       - uses: actions/upload-artifact@v4
         with:
           name: BABEL-Android-APK
@@ -73,3 +101,4 @@ jobs:
             babel-ci/project/apk-zip-test.txt
             babel-ci/project/apk-sha256.txt
             babel-ci/project/apk-size.txt
+            babel-ci/project/compiled-classes.txt
